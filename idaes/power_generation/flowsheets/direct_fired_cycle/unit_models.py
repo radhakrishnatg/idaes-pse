@@ -609,6 +609,11 @@ class OxygenTankOperationData(SkeletonUnitModelData):
             expr=self.final_holdup >= 0.1 * design_blk.tank_capacity,
         )
 
+        # Holdup cannot exceed the capacity of the tank
+        self.holdup_ub = Constraint(
+            expr=self.final_holdup <= design_blk.tank_capacity
+        )
+
         # Mass balance over the period of one hour:
         self.mass_balance = Constraint(
             expr=self.final_holdup - self.initial_holdup == (self.lox_in - self.lox_out) * (3600 / 1000),
@@ -616,6 +621,6 @@ class OxygenTankOperationData(SkeletonUnitModelData):
 
         # Power requirement for discharging 
         self.power = Expression(
-            expr=1.47054 * (self.Lox_out / 112.0865459),
+            expr=1.47054 * (self.lox_out / 112.0865459),
             doc="Power requirement for discharging LOX [in MW]",
         )

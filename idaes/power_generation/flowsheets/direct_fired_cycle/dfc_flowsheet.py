@@ -150,7 +150,7 @@ def build_dfc_flowsheet_with_nlu(
     m.fs.power_dfc_to_nlu = Var(within=NonNegativeReals)
     m.fs.power_dfc_to_tank = Var(within=NonNegativeReals)
     m.fs.power_grid_to_asu = Var(within=NonNegativeReals)
-    m.fs.power_gird_to_nlu = Var(within=NonNegativeReals)
+    m.fs.power_grid_to_nlu = Var(within=NonNegativeReals)
     m.fs.power_grid_to_tank = Var(within=NonNegativeReals)
 
     m.fs.oxygen_asu_to_dfc = Var(within=NonNegativeReals)
@@ -169,7 +169,7 @@ def build_dfc_flowsheet_with_nlu(
 
     # Power balance across the NLU
     m.fs.nlu_power_balance = Constraint(
-        expr=m.fs.nlu.power == m.fs.power_dfc_to_nlu + m.fs.power_gird_to_nlu
+        expr=m.fs.nlu.power == m.fs.power_dfc_to_nlu + m.fs.power_grid_to_nlu
     )
 
     # Power balance across the tank
