@@ -76,7 +76,7 @@ def _write_results(
     set_flowsheets = m.mp_model.period[:].fs
 
     results = {
-        "LMP": [m.LMP[t] for t in m.set_time],
+        "LMP [$/MWh]": [m.LMP[t] * 1000 for t in m.set_time],
         "DFC_Schedule": [value(fs.dfc.op_mode) for fs in set_flowsheets],
         "DFC_Startup": [value(fs.dfc.startup) for fs in set_flowsheets],
         "DFC_Shutdown": [value(fs.dfc.shutdown) for fs in set_flowsheets],
@@ -150,6 +150,9 @@ def _write_results(
         "ASU Shutdowns": sum(results["ASU_Shutdown"]),
         "Total Power Produced": sum(results["DFC_Power"]),
         "Total Power Sold": sum(results["Power_to_grid"]),
+        "Total CAPEX": m.CAPEX.value / 1000,
+        "Total FOM": m.FOM.value / 1000,
+        "Total Net Profit": m.NET_PROFIT.value / 1000,
 
         "Num Vars": sol["Problem"][0]["Number of variables"],
         "Num Bin Vars": sol["Problem"][0]["Number of binary variables"],
@@ -198,7 +201,7 @@ def npv_model_dfc_asu(
 
     # Append cashflows at each hour
     for t in m.set_time:
-        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng)
+        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng, carbon_price=carbon_tax / 1000)
 
     # Append startup and shutdown constraints for the power cycle
     m.mp_model.dfc_su_sd = Block(rule=dfc_startup_shutdown_constraints)
@@ -226,6 +229,9 @@ def npv_model_dfc_asu(
 
     # Use SCIP solver
     # solver = SolverFactory("scip")
+    # solver.options["limits/gap"] = 0.01
+    # solver.options["limits/time"] = 7500
+    # solver.options["lp/threads"] = 16
 
     sol = solver.solve(m, tee=True)
 
@@ -272,7 +278,7 @@ def npv_model_dfc_asu_nlu(
 
     # Append cashflows at each hour
     for t in m.set_time:
-        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng)
+        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng, carbon_price=carbon_tax / 1000)
 
     # Append startup and shutdown constraints for the power cycle
     m.mp_model.dfc_su_sd = Block(rule=dfc_startup_shutdown_constraints)
@@ -295,7 +301,7 @@ def npv_model_dfc_asu_nlu(
     solver = SolverFactory("gurobi")
     solver.options['NonConvex'] = 2
     solver.options['MIPGap'] = 0.01
-    solver.options['TimeLimit'] = 7500
+    solver.options['TimeLimit'] = 15000
     solver.options['OutputFlag'] = 1
 
     # Use BARON solver
@@ -305,9 +311,12 @@ def npv_model_dfc_asu_nlu(
 
     # Use SCIP solver
     # solver = SolverFactory("scip")
+    # solver.options["limits/gap"] = 0.01
+    # solver.options["limits/time"] = 7500
+    # solver.options["lp/threads"] = 16
 
     sol = solver.solve(m, tee=True)
 
-    _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax))
+    _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax), includes_nlu=True)
 
     return m, sol

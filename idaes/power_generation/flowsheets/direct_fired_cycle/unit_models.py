@@ -20,6 +20,7 @@ from pyomo.common.config import ConfigValue
 # HHV of NG = 22499.17034 btu/lb = 0.0496 MMBtu/kg
 NG_HHV = 0.0496
 HR_TO_SEC = 3600
+LBS_TO_KG = 0.453592
 
 
 def get_lmp_data(m, 
@@ -85,13 +86,8 @@ class DFCDesignData(SkeletonUnitModelData):
         self.capacity = Var(
             within=NonNegativeReals,
             initialize=838.11322145,
+            bounds=(0, self.config.capacity_range[1]),
             doc="Capacity of the power plant [in MW]",
-        )
-
-        self.ng_flow = Var(
-            within=NonNegativeReals,
-            initialize=28.87,
-            doc="Natural gas flowrate at full load [in kg/s]",
         )
 
         # Define a variable that informs whether the plant needs to built or not. 
@@ -107,8 +103,8 @@ class DFCDesignData(SkeletonUnitModelData):
 
         # Compute the natural gas flowrate required at maximum capacity. 
         # FIXME: Assuming a linear relation for now. Update the equation when we have more data
-        self.ng_flow_requirement = Constraint(
-            expr=self.ng_flow == self.capacity * (28.87 / 838.11322145),
+        self.ng_flow = Expression(
+            expr=self.capacity * (28.87 / 838.11322145),
             doc="Computes the natural flowrate required [in kg/s] at full load",
         )
 
@@ -161,16 +157,6 @@ class DFCOperationData(SkeletonUnitModelData):
             within=NonNegativeReals,
             doc="Natural gas flowrate [in kg/s]",
         )
-        self.norm_power = Var(
-            within=NonNegativeReals,
-            bounds=(0, 1),
-            doc="Power normalized with the design value [-]",
-        )
-        self.norm_ng_flow = Var(
-            within=NonNegativeReals,
-            bounds=(0, 1),
-            doc="Natural gas flowrate normalized with the design value [-]",
-        )
         self.op_mode = Var(
             within=Binary,
             doc="1: In Operation, 0: Shutdown",
@@ -184,32 +170,25 @@ class DFCOperationData(SkeletonUnitModelData):
             doc="1: Plant is shutdown at this hour, 0: Otherwise",
         )
 
-        # Definition of normalized power and natural gas flow variables
-        self.norm_power_definition = Constraint(
-            expr=self.norm_power * design_blk.capacity == self.power,
-            doc="Definition of the noramlized power variable",
-        )
-        self.norm_ng_flow_definition = Constraint(
-            expr=self.norm_ng_flow * design_blk.ng_flow == self.ng_flow,
-            doc="Definition of the normalized natural gas flowrate variable",
-        )
-
         # Power production as a function of natural gas flowrate
         # We construct a surrogate model of the form (1 - norm_power) = m * (1 - norm_ng_flow).
         # This way, the natural gas requirement is exact at full load.
         # Rearranging the equation yields norm_power = m * norm_ng_flow + 1-m 
+        # Next, we replace norm_power = power / capacity and norm_ng_flow = ng_flow / max_ng_flow,
+        # substitute max_ng_flow in terms of capacity and rearrange the equation.
         self.power_production = Constraint(
-            expr=self.norm_power == 1.2845 * self.norm_ng_flow - 0.2845 * self.op_mode,
+            expr=self.power == (1.2845 / (28.87 / 838.11322145)) * self.ng_flow - 
+            0.2845 * self.op_mode * design_blk.capacity,
         )
 
         # Ensure that power production is within P_min and P_max
         operating_range = self.config.operating_range
         self.power_production_lb = Constraint(
-            expr=operating_range[0] * self.op_mode <= self.norm_power,
+            expr=operating_range[0] * self.op_mode * design_blk.capacity <= self.power,
         )
 
         self.power_production_ub = Constraint(
-            expr=self.norm_power <= operating_range[1] * self.op_mode,
+            expr=self.power <= operating_range[1] * self.op_mode * design_blk.capacity,
         )
 
         # Declare a variable to track NG requirement for startup and shutdown
@@ -249,15 +228,9 @@ class MonoASUDesignData(SkeletonUnitModelData):
         self.max_o2_flow = Var(
             within=NonNegativeReals,
             initialize=109.2912232,
+            bounds=(0, self.config.o2_flow_range[1]),
             doc="Maximum flowrate of O2 the ASU can produce [in kg/s]",
         )
-
-        self.max_power = Var(
-            within=NonNegativeReals,
-            initialize=162.1878617,
-            doc="Power requirement at maximum capacity [in MW]",
-        )
-
         self.build_asu = Var(
             within=Binary,
             doc="1: ASU is built, 0: ASU is not built",
@@ -269,8 +242,9 @@ class MonoASUDesignData(SkeletonUnitModelData):
         self.o2_flow_ub_con = Constraint(expr=self.max_o2_flow <= self.build_asu * o2_flow_range[1])
 
         # Relation between the flowrate and the power requirement
-        self.power_requirement = Constraint(
-            expr=self.max_power == self.max_o2_flow * (162.1878617 / 109.2912232)
+        self.max_power = Expression(
+            expr=self.max_o2_flow * (162.1878617 / 109.2912232),
+            doc="Power requirement at maximum capacity [in MW]",
         )
 
         # Assuming that the capex of the ASU varies linearly with size
@@ -317,16 +291,6 @@ class MonoASUOperationData(SkeletonUnitModelData):
             within=NonNegativeReals,
             doc="Flowrate of oxygen produced [in kg/s]",
         )
-        self.norm_power = Var(
-            within=NonNegativeReals,
-            bounds=(0, 1),
-            doc="Power normalized with the design value [-]",
-        )
-        self.norm_o2_flow = Var(
-            within=NonNegativeReals,
-            bounds=(0, 1),
-            doc="oxygen flowrate normalized with the design value [-]",
-        )
         self.op_mode = Var(
             within=Binary,
             doc="1: In Operation, 0: Shutdown",
@@ -340,32 +304,23 @@ class MonoASUOperationData(SkeletonUnitModelData):
             doc="1: ASU is shutdown at this hour, 0: Otherwise",
         )
 
-        # Definition of normalized power and natural gas flow variables
-        self.norm_power_definition = Constraint(
-            expr=self.norm_power * design_blk.max_power == self.power,
-            doc="Definition of the noramlized power variable",
-        )
-        self.norm_o2_flow_definition = Constraint(
-            expr=self.norm_o2_flow * design_blk.max_o2_flow == self.o2_flow,
-            doc="Definition of the normalized oxygen flowrate variable",
-        )
-
         # Power production as a function of natural gas flowrate
         # We construct a surrogate model of the form (1 - norm_power) = m * (1 - norm_o2_flow).
         # This way, the power requirement is exact at full capacity.
         # Rearranging the equation yields norm_power = m * norm_o2_flow + 1-m 
         self.power_requirement = Constraint(
-            expr=self.norm_power == 0.9625 * self.norm_o2_flow + 0.0375 * self.op_mode, 
+            expr=(1 / (162.1878617 / 109.2912232)) * self.power == 
+            0.9625 * self.o2_flow + 0.0375 * self.op_mode * design_blk.max_o2_flow, 
         )
 
         # Ensure that the normalized oxygen flowrate is within the admissible operating range
         operating_range = self.config.operating_range
         self.o2_flow_lb = Constraint(
-            expr=operating_range[0] * self.op_mode <= self.norm_o2_flow,
+            expr=operating_range[0] * self.op_mode * design_blk.max_o2_flow <= self.o2_flow,
         )
 
         self.o2_flow_ub = Constraint(
-            expr=self.norm_o2_flow <= operating_range[1] * self.op_mode,
+            expr=self.o2_flow <= operating_range[1] * self.op_mode * design_blk.max_o2_flow,
         )
 
         self.su_sd_power = Var(
@@ -398,15 +353,9 @@ class NLUDesignData(SkeletonUnitModelData):
         self.max_o2_flow = Var(
             within=NonNegativeReals,
             initialize=109.291223201103,
+            bounds=(0, self.config.o2_flow_range[1]),
             doc="Maximum flowrate of O2 the NLU can liquefy [in kg/s]",
         )
-
-        self.max_power = Var(
-            within=NonNegativeReals,
-            initialize=143.8024,
-            doc="Power requirement at maximum capacity [in MW]",
-        )
-
         self.build_nlu = Var(
             within=Binary,
             doc="1: NLU is built, 0: NLU is not built",
@@ -418,8 +367,9 @@ class NLUDesignData(SkeletonUnitModelData):
         self.o2_flow_ub_con = Constraint(expr=self.max_o2_flow <= self.build_nlu * o2_flow_range[1])
 
         # Relation between the flowrate and the power requirement
-        self.power_requirement = Constraint(
-            expr=self.max_power == self.max_o2_flow * (143.8024 / 109.291223201103)
+        self.max_power = Expression(
+            expr=self.max_o2_flow * (143.8024 / 109.291223201103),
+            doc="Power requirement at maximum capacity [in MW]",
         )
 
         # Assuming that the capex of the NLU varies linearly with size
@@ -470,16 +420,6 @@ class NLUOperationData(SkeletonUnitModelData):
             within=NonNegativeReals,
             doc="Flowrate of liquified oxygen [in kg/s]",
         )
-        self.norm_power = Var(
-            within=NonNegativeReals,
-            bounds=(0, 1),
-            doc="Power normalized with the design value [-]",
-        )
-        self.norm_o2_flow = Var(
-            within=NonNegativeReals,
-            bounds=(0, 1),
-            doc="oxygen flowrate normalized with the design value [-]",
-        )
 
         # Note: Assuming that the NLU does not have any startup/shutdown constraints.
         # If it does, we need to define startup and shutdown binary variables like before.
@@ -488,29 +428,19 @@ class NLUOperationData(SkeletonUnitModelData):
             doc="1: In Operation, 0: Shutdown",
         )
 
-        # Definition of normalized power and natural gas flow variables
-        self.norm_power_definition = Constraint(
-            expr=self.norm_power * design_blk.max_power == self.power,
-            doc="Definition of the noramlized power variable",
-        )
-        self.norm_ng_flow_definition = Constraint(
-            expr=self.norm_o2_flow * design_blk.max_o2_flow == self.o2_flow,
-            doc="Definition of the normalized oxygen flowrate variable",
-        )
-
         # Power production as a function of natural gas flowrate
         self.power_requirement = Constraint(
-            expr=self.norm_power == self.norm_o2_flow,
+            expr=self.power == self.o2_flow * (143.8024 / 109.291223201103),
         )
 
         # Ensure that the normalized oxygen flowrate is within the operating_range
         operating_range = self.config.operating_range
         self.o2_flow_lb = Constraint(
-            expr=operating_range[0] * self.op_mode <= self.norm_o2_flow,
+            expr=operating_range[0] * self.op_mode * design_blk.max_o2_flow <= self.o2_flow,
         )
 
         self.o2_flow_ub = Constraint(
-            expr=self.norm_o2_flow <= operating_range[1] * self.op_mode,
+            expr=self.o2_flow <= operating_range[1] * self.op_mode * design_blk.max_o2_flow,
         )
 
 
@@ -533,6 +463,7 @@ class OxygenTankDesignData(SkeletonUnitModelData):
         self.tank_capacity = Var(
             within=NonNegativeReals,
             initialize=4000,
+            bounds=(0, self.config.tank_size_range[1]),
             doc="Maximum amount of oxygen the tank can hold [in tons]",
         )
 

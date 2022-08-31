@@ -12,6 +12,7 @@ from .unit_models import (
     OxygenTankOperation,
     NG_HHV,
     HR_TO_SEC,
+    LBS_TO_KG,
 )
 
 
@@ -199,6 +200,7 @@ def append_op_costs_dfc(
     lmp,
     penalty=0.005,
     cost_ng=2,
+    carbon_price=0.1,
 ):
     """Append cost and revenue expressions for each time step
 
@@ -224,8 +226,31 @@ def append_op_costs_dfc(
         doc="Operational cost associated with fuel consumption [in $1000]",
     )
 
+    # Other VOM for DFC: Calculated as $3339.92 / (0.85 * 8760) = 0.4485
+    m.fs.vom_dfc = Expression(
+        expr=0.4485 * (m.fs.dfc.power / 838.11322145),
+    )
+
+    # Other VOM for ASU: Calculated as $18048.07 / (0.85 * 8760) = 2.4239
+    m.fs.vom_asu = Expression(
+        expr=2.4239 * (m.fs.asu.o2_flow / 109.2912232),
+    )
+
+    # Other VOM for NLU: Calculated as $5404.96 / (0.85 * 8760) = 0.7259
+    if hasattr(m.fs, "nlu"):
+        m.fs.vom_nlu = Expression(
+            expr=0.7259 * (m.fs.nlu.o2_flow / 109.2912232),
+        )
+
+    # TODO: Add CO2 emissions for the startup and shutdown (likely negligible)
+    m.co2_emissions = Expression(
+        expr=24 * LBS_TO_KG * m.fs.dfc.power * carbon_price / 1000,
+    )
+
     m.fs.net_cash_flow = Expression(
-        expr=m.fs.electricity_revenue - m.fs.fuel_cost,
+        expr=m.fs.electricity_revenue - m.fs.fuel_cost
+        - m.fs.vom_dfc - m.fs.vom_asu - (m.fs.vom_nlu if hasattr(m.fs, "nlu") else 0)
+        - m.co2_emissions,
     )
 
 
