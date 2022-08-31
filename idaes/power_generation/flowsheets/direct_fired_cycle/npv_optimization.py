@@ -109,7 +109,7 @@ def _write_results(
         results["Tank_lox_out"] = [value(fs.tank.lox_out) for fs in set_flowsheets]
 
         results["Power_dfc_to_nlu"] = [value(fs.power_dfc_to_nlu) for fs in set_flowsheets]
-        results["Power_dfc_to_tank"] = [value(fs.power_dfc_to_Tank) for fs in set_flowsheets]
+        results["Power_dfc_to_tank"] = [value(fs.power_dfc_to_tank) for fs in set_flowsheets]
         results["Power_grid_to_nlu"] = [value(fs.power_grid_to_nlu) for fs in set_flowsheets]
         results["Power_grid_to_tank"] = [value(fs.power_grid_to_tank) for fs in set_flowsheets]
 
@@ -121,7 +121,7 @@ def _write_results(
         results["Tank_lox_in"] = [value(fs.tank.lox_in) for fs in set_flowsheets]
         results["Tank_lox_out"] = [value(fs.tank.lox_out) for fs in set_flowsheets]
 
-        results["Power_dfc_to_tank"] = [value(fs.power_dfc_to_Tank) for fs in set_flowsheets]
+        results["Power_dfc_to_tank"] = [value(fs.power_dfc_to_tank) for fs in set_flowsheets]
         results["Power_grid_to_tank"] = [value(fs.power_grid_to_tank) for fs in set_flowsheets]
 
     results_df = pd.DataFrame(results)
@@ -299,7 +299,7 @@ def npv_model_dfc_asu_nlu(
 
     # Use Gurobi solver
     solver = SolverFactory("gurobi")
-    solver.options['NonConvex'] = 2
+    # solver.options['NonConvex'] = 2
     solver.options['MIPGap'] = 0.01
     solver.options['TimeLimit'] = 15000
     solver.options['OutputFlag'] = 1
