@@ -217,7 +217,7 @@ def npv_model_dfc_asu(
 
     # Use Gurobi solver
     solver = SolverFactory("gurobi")
-    solver.options['NonConvex'] = 2
+    # solver.options['NonConvex'] = 2
     solver.options['MIPGap'] = 0.01
     solver.options['TimeLimit'] = 7500
     solver.options['OutputFlag'] = 1
@@ -236,6 +236,86 @@ def npv_model_dfc_asu(
     sol = solver.solve(m, tee=True)
 
     _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax))
+
+    return m, sol
+
+
+def npv_model_dfc_asu_with_lox(
+    dataset="NREL",
+    location="PJM-W",
+    carbon_tax=150,
+):
+    if dataset == "NREL":
+        cost_ng = NG_PRICE_DATA[dataset][carbon_tax][location]
+    else:
+        cost_ng = NG_PRICE_DATA[dataset]
+
+    m = ConcreteModel()
+    get_lmp_data(m, dataset=dataset, location=location, carbon_tax=carbon_tax)
+
+    m.dfc_design = DFCDesign()
+    m.asu_design = MonoASUDesign()
+    m.tank_design = OxygenTankDesign()
+
+    # Currently, we are not varying the capacity of the power cycle, so fixing the value
+    # of capacity. Also, we want the power cycle to be built, so fixing build_dfc. 
+    m.dfc_design.build_dfc.fix(1)
+    m.dfc_design.capacity.fix()
+
+    m.mp_model = MultiPeriodModel(
+        n_time_points=365 * 24,
+        process_model_func=build_dfc_flowsheet_with_lox,
+        linking_variable_func=get_linking_var_pairs,
+        use_stochastic_build=True,
+        flowsheet_options={
+            "dfc_design": m.dfc_design,
+            "asu_design": m.asu_design,
+            "tank_design": m.tank_design,
+        },
+    )
+
+    # Append cashflows at each hour
+    for t in m.set_time:
+        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng, carbon_price=carbon_tax / 1000)
+
+    # Append startup and shutdown constraints for the power cycle
+    m.mp_model.dfc_su_sd = Block(rule=dfc_startup_shutdown_constraints)
+
+    # Append startup and shutdown constraints for the ASU unit
+    m.mp_model.asu_su_sd = Block(rule=asu_startup_shutdown_constraints)
+
+    # Set the initial holdup of the tank
+    m.mp_model.initial_tank_level = Constraint(
+        expr=m.mp_model.period[1].fs.tank.initial_holdup == 0.1 * m.tank_design.tank_capacity
+    )
+
+    # Append the overall cashflows
+    append_cashflows(m)
+
+    # Declare the objective function
+    m.obj = Objective(expr=m.npv, sense=maximize)
+
+    # Use Gurobi solver
+    solver = SolverFactory("gurobi")
+    solver.options['NonConvex'] = 2
+    solver.options['MIPGap'] = 0.01
+    solver.options['TimeLimit'] = 7500
+    solver.options['OutputFlag'] = 1
+
+    # Use BARON solver
+    # solver = SolverFactory("baron")
+    # solver.options["epsr"] = 0.01
+    # solver.options["maxtime"] = 7500
+
+    # Use SCIP solver
+    # solver = SolverFactory("scip")
+    # solver.options["limits/gap"] = 0.01
+    # solver.options["limits/time"] = 7500
+    # solver.options["lp/threads"] = 16
+
+    sol = solver.solve(m, tee=True)
+
+    _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax), lox_withdrawal=True)
 
     return m, sol
 
