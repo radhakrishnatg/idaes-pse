@@ -254,8 +254,8 @@ def npv_model_dfc_asu_with_lox(
     get_lmp_data(m, dataset=dataset, location=location, carbon_tax=carbon_tax)
 
     m.dfc_design = DFCDesign()
-    m.asu_design = MonoASUDesign()
-    m.tank_design = OxygenTankDesign()
+    m.asu_design = MonoASUDesign(o2_flow_range=(10, 130))
+    m.tank_design = OxygenTankDesign(tank_size_range=(10, 400000))
 
     # Currently, we are not varying the capacity of the power cycle, so fixing the value
     # of capacity. Also, we want the power cycle to be built, so fixing build_dfc. 
@@ -334,9 +334,9 @@ def npv_model_dfc_asu_nlu(
     get_lmp_data(m, dataset=dataset, location=location, carbon_tax=carbon_tax)
 
     m.dfc_design = DFCDesign()
-    m.asu_design = MonoASUDesign()
-    m.nlu_design = NLUDesign()
-    m.tank_design = OxygenTankDesign()
+    m.asu_design = MonoASUDesign(o2_flow_range=(10, 130))
+    m.nlu_design = NLUDesign(o2_flow_range=(10, 130))
+    m.tank_design = OxygenTankDesign(tank_size_range=(10, 400000))
 
     # Currently, we are not varying the capacity of the power cycle, so fixing the value
     # of capacity. Also, we want the power cycle to be built, so fixing build_dfc. 

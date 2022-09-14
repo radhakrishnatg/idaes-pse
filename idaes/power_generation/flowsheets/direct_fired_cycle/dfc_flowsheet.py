@@ -226,14 +226,21 @@ def append_op_costs_dfc(
         doc="Operational cost associated with fuel consumption [in $1000]",
     )
 
+    # Total VOM = 3339.92 + 18048.07 = 21387.99. Split the VOM for inidividual units
+    # in the ratio of their CAPEX. 1128855 + (1128855 + 545522) = 0.6742.
+    # The VOM of the DFC cycle = 0.6742 * 21387.99 = 14419.78286 
+    #  ==> 14419.78286 / (0.85 * 8760) = 1.93658
+    # The VOM of the ASU unit = 0.3258 * 21387.99 = 6968.207
+    #  ==> 6968.207 / (0.85 * 8760) = 0.93583
+
     # Other VOM for DFC: Calculated as $3339.92 / (0.85 * 8760) = 0.4485
     m.fs.vom_dfc = Expression(
-        expr=0.4485 * (m.fs.dfc.power / 838.11322145),
+        expr=1.93658 * (m.fs.dfc.power / 838.11322145),
     )
 
     # Other VOM for ASU: Calculated as $18048.07 / (0.85 * 8760) = 2.4239
     m.fs.vom_asu = Expression(
-        expr=2.4239 * (m.fs.asu.o2_flow / 109.2912232),
+        expr=0.93583 * (m.fs.asu.o2_flow / 109.2912232),
     )
 
     # Other VOM for NLU: Calculated as $5404.96 / (0.85 * 8760) = 0.7259
