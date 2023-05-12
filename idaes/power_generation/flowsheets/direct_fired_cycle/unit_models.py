@@ -15,19 +15,17 @@ from pyomo.environ import (
 from idaes.core.base.process_base import declare_process_block_class
 from idaes.models.unit_models import SkeletonUnitModelData
 from pyomo.common.config import ConfigValue
-
-# TODO: Contact Sandeep for reference. 
-# HHV of NG = 22499.17034 btu/lb = 0.0496 MMBtu/kg
-NG_HHV = 0.0496
-HR_TO_SEC = 3600
-LBS_TO_KG = 0.453592
+import idaes.power_generation.flowsheets.direct_fired_cycle. \
+    default_model_parameters as dmp
 
 
-def get_lmp_data(m, 
-                 dataset="NREL",
-                 location="CAISO",
-                 carbon_tax=100,
-                 princeton_case="BaseCaseTax"):
+def get_lmp_data(
+    m, 
+    dataset="NREL",
+    location="CAISO",
+    carbon_tax=100,
+    princeton_case="BaseCaseTax",
+):
     """
     This function reads and appends LMP data to the model.
     """
@@ -49,7 +47,8 @@ def get_lmp_data(m,
     elif dataset == "Princeton":
         raw_data = pd.read_excel(
             path_to_file,
-            sheet_name="2030 - Princeton")
+            sheet_name="2030 - Princeton",
+        )
         column_name = princeton_case
         num_days = 365
 
@@ -78,14 +77,25 @@ class DFCDesignData(SkeletonUnitModelData):
         default=(500, 850),
         doc="Range for the capacity of the DFC [in MW]",
     ))
+    CONFIG.declare("model_params", ConfigValue(
+        default=dmp.DFC_PARAMS,
+        doc="Dictionary containing model parameters",
+    ))
 
     # noinspection PyAttributeOutsideInit
     def build(self):
         super().build()
 
+        params = self.config.model_params
+        _dfc_capacity = params["dfc_capacity"]
+        _ng_flow = params["ng_flow"]
+        _o2_ng_ratio = params["o2_ng_ratio"]
+        _capex = params["capex"]
+        _fom_factor = params["fom_factor"]
+
         self.capacity = Var(
             within=NonNegativeReals,
-            initialize=838.11322145,
+            initialize=_dfc_capacity,
             bounds=(0, self.config.capacity_range[1]),
             doc="Capacity of the power plant [in MW]",
         )
@@ -104,25 +114,25 @@ class DFCDesignData(SkeletonUnitModelData):
         # Compute the natural gas flowrate required at maximum capacity. 
         # FIXME: Assuming a linear relation for now. Update the equation when we have more data
         self.ng_flow = Expression(
-            expr=self.capacity * (28.87 / 838.11322145),
+            expr=self.capacity * (_ng_flow / _dfc_capacity),
             doc="Computes the natural flowrate required [in kg/s] at full load",
         )
 
         self.o2_flow = Expression(
-            expr=3.785632948 * self.ng_flow,
+            expr=_o2_ng_ratio * self.ng_flow,
             doc="Flowrate of oxygen [in kg/s] required at full load",
         )
 
         # Assumuing that the capex varies linearly with capacity
         self.capex = Expression(
-            expr=1128855 * (self.capacity / 838.11322145),
+            expr=_capex * (self.capacity / _dfc_capacity),
             doc="CAPEX of the power cycle [in 1000$]",
         )
 
         # Calculating the FOM as 3.157% of the CAPEX. The percentage value is obtained from
         # 35,641.27 (FOM) / 1,128,855 (CAPEX). The FOM is also assumed to vary linearly with the capacity.
         self.fom = Expression(
-            expr=0.03157 * self.capex,
+            expr=_fom_factor * self.capex,
             doc="Fixed O&M cost [in 1000$/year]",
         )
 
@@ -193,9 +203,18 @@ class DFCOperationData(SkeletonUnitModelData):
         # Rearranging the equation yields norm_power = m * norm_ng_flow + 1-m 
         # Next, we replace norm_power = power / capacity and norm_ng_flow = ng_flow / max_ng_flow,
         # substitute max_ng_flow in terms of capacity and rearrange the equation.
+
+        params = design_blk.config.model_params
+        _dfc_capacity = params["dfc_capacity"]
+        _ng_flow = params["ng_flow"]
+        _perf_curve = params["op_curve_coeff"]
+        _o2_ng_ratio = params["o2_ng_ratio"]
+        _vom = params["vom"]
+        _co2_emission = params["co2_emission"]
+
         self.power_production = Constraint(
-            expr=self.power == (1.2845 / (28.87 / 838.11322145)) * self.ng_flow - 
-            0.2845 * self.op_mode_capacity,
+            expr=self.power == (_perf_curve[0] / (_ng_flow / _dfc_capacity)) * self.ng_flow - 
+            _perf_curve[1] * self.op_mode_capacity,
         )
 
         # Ensure that power production is within P_min and P_max
@@ -220,8 +239,18 @@ class DFCOperationData(SkeletonUnitModelData):
         )
 
         self.o2_flow = Expression(
-            expr=3.785632948 * self.total_ng_flow,
+            expr=_o2_ng_ratio * self.total_ng_flow,
             doc="Flowrate of oxygen required [in kg/s]",
+        )
+
+        self.non_fuel_vom = Expression(
+            expr=_vom * (self.power / _dfc_capacity),
+            doc="Non-fuel VOM cost [in $1000/hr]",
+        )
+
+        self.co2_emissions = Expression(
+            expr=_co2_emission * self.power,
+            doc="Net CO2 emissions [in kg/hr]",
         )
 
 
@@ -237,14 +266,24 @@ class MonoASUDesignData(SkeletonUnitModelData):
         default=(80, 130),
         doc="Range for the size of the ASU in terms of O2 flow rate [in kg/s]",
     ))
+    CONFIG.declare("model_params", ConfigValue(
+        default=dmp.MONO_ASU_PARAMS,
+        doc="Dictionary containing model parameters",
+    ))
 
     # noinspection PyAttributeOutsideInit
     def build(self):
         super().build()
 
+        params = self.config.model_params
+        _asu_capacity = params["asu_capacity"]
+        _power_req = params["power_requirement"]
+        _capex = params["capex"]
+        _fom_factor = params["fom_factor"]
+
         self.max_o2_flow = Var(
             within=NonNegativeReals,
-            initialize=109.2912232,
+            initialize=_asu_capacity,
             bounds=(0, self.config.o2_flow_range[1]),
             doc="Maximum flowrate of O2 the ASU can produce [in kg/s]",
         )
@@ -260,20 +299,20 @@ class MonoASUDesignData(SkeletonUnitModelData):
 
         # Relation between the flowrate and the power requirement
         self.max_power = Expression(
-            expr=self.max_o2_flow * (162.1878617 / 109.2912232),
+            expr=self.max_o2_flow * (_power_req / _asu_capacity),
             doc="Power requirement at maximum capacity [in MW]",
         )
 
         # Assuming that the capex of the ASU varies linearly with size
         self.capex = Expression(
-            expr=545522 * (self.max_o2_flow / 109.2912232),
+            expr=_capex * (self.max_o2_flow / _asu_capacity),
             doc="CAPEX of the ASU unit [in 1000$]",
         )
 
         # Calculating the FOM as 3.157% of the CAPEX. The percentage value is obtained from
         # 17223.73 (FOM) / 545,522 (CAPEX). The FOM is also assumed to vary linearly with the capacity. 
         self.fom = Expression(
-            expr=0.03157 * self.capex,
+            expr=_fom_factor * self.capex,
             doc="Fixed O&M cost [in $1000]",
         )
 
@@ -341,9 +380,16 @@ class MonoASUOperationData(SkeletonUnitModelData):
         # We construct a surrogate model of the form (1 - norm_power) = m * (1 - norm_o2_flow).
         # This way, the power requirement is exact at full capacity.
         # Rearranging the equation yields norm_power = m * norm_o2_flow + 1-m 
+
+        params = design_blk.config.model_params
+        _asu_capacity = params["asu_capacity"]
+        _power_req = params["power_requirement"]
+        _perf_curve = params["op_curve_coeff"]
+        _vom = params["vom"]
+
         self.power_requirement = Constraint(
-            expr=(1 / (162.1878617 / 109.2912232)) * self.power == 
-            0.9625 * self.o2_flow + 0.0375 * self.op_mode_o2_flow, 
+            expr=(1 / (_power_req / _asu_capacity)) * self.power == 
+            _perf_curve[0] * self.o2_flow + _perf_curve[1] * self.op_mode_o2_flow, 
         )
 
         # Ensure that the normalized oxygen flowrate is within the admissible operating range
@@ -366,6 +412,11 @@ class MonoASUOperationData(SkeletonUnitModelData):
             doc="Total power required by the ASU [in MW]",
         )
 
+        self.non_fuel_vom = Expression(
+            expr=_vom * (self.o2_flow / _asu_capacity),
+            doc="Non-electricity VOM cost [in $1000/hr]",
+        )
+
 
 @declare_process_block_class("NLUDesign")
 class NLUDesignData(SkeletonUnitModelData):
@@ -378,14 +429,24 @@ class NLUDesignData(SkeletonUnitModelData):
         default=(50, 130),
         doc="Range for the size of the NLU in terms of O2 flow rate [in kg/s]",
     ))
+    CONFIG.declare("model_params", ConfigValue(
+        default=dmp.NLU_PARAMS,
+        doc="Dictionary containing NLU model parameters",
+    ))
 
     # noinspection PyAttributeOutsideInit
     def build(self):
         super().build()
 
+        params = self.config.model_params
+        _nlu_capacity = params["nlu_capacity"]
+        _power_req = params["power_requirement"]
+        _capex = params["capex"]
+        _fom_factor = params["fom_factor"]
+
         self.max_o2_flow = Var(
             within=NonNegativeReals,
-            initialize=109.291223201103,
+            initialize=_nlu_capacity,
             bounds=(0, self.config.o2_flow_range[1]),
             doc="Maximum flowrate of O2 the NLU can liquefy [in kg/s]",
         )
@@ -401,21 +462,21 @@ class NLUDesignData(SkeletonUnitModelData):
 
         # Relation between the flowrate and the power requirement
         self.max_power = Expression(
-            expr=self.max_o2_flow * (143.8024 / 109.291223201103),
+            expr=self.max_o2_flow * (_power_req / _nlu_capacity),
             doc="Power requirement at maximum capacity [in MW]",
         )
 
         # Assuming that the capex of the NLU varies linearly with size
         # Obtained from $42,797.4 * 4 = $171,189.6
         self.capex = Expression(
-            expr=171189.6 * (self.max_o2_flow / 109.291223201103),
+            expr=_capex * (self.max_o2_flow / _nlu_capacity),
             doc="CAPEX of the ASU unit [in 1000$]",
         )
 
         # Assuming that the FOM of NLU is 3.157% of CAPEX. This number is calculated as
         # 41,715 (FOM) / 171,189 (CAPEX) 
         self.fom = Expression(
-            expr=0.03157 * self.capex,
+            expr=_fom_factor * self.capex,
             doc="Fixed O&M of NLU [in $1000]",
         )
 
@@ -443,6 +504,10 @@ class NLUOperationData(SkeletonUnitModelData):
         super().build()
 
         design_blk = self.config.design_blk
+        params = design_blk.config.model_params
+        _nlu_capacity = params["nlu_capacity"]
+        _power_req = params["power_requirement"]
+        _vom = params["vom"]
 
         # Declare variables
         self.power = Var(
@@ -477,7 +542,7 @@ class NLUOperationData(SkeletonUnitModelData):
 
         # Power production as a function of natural gas flowrate
         self.power_requirement = Constraint(
-            expr=self.power == self.o2_flow * (143.8024 / 109.291223201103),
+            expr=self.power == self.o2_flow * (_power_req / _nlu_capacity),
         )
 
         # Ensure that the normalized oxygen flowrate is within the operating_range
@@ -488,6 +553,11 @@ class NLUOperationData(SkeletonUnitModelData):
 
         self.o2_flow_ub = Constraint(
             expr=self.o2_flow <= operating_range[1] * self.op_mode_o2_flow,
+        )
+
+        self.non_fuel_vom = Expression(
+            expr=_vom * (self.o2_flow / _nlu_capacity),
+            doc="Non-electricity VOM cost [in $1000/hr]",
         )
 
 
@@ -502,10 +572,18 @@ class OxygenTankDesignData(SkeletonUnitModelData):
         default=(2000, 400000),
         doc="Range for the tank capacity [in tons]",
     ))
+    CONFIG.declare("model_params", ConfigValue(
+        default=dmp.O2_TANK_PARAMS,
+        doc="Dictionary containing model parameters"
+    ))
 
     # noinspection PyAttributeOutsideInit
     def build(self):
         super().build()
+
+        params = self.config.model_params
+        _fom_factor = params["fom_factor"]
+        _capex = params["capex"]
 
         self.tank_capacity = Var(
             within=NonNegativeReals,
@@ -521,16 +599,20 @@ class OxygenTankDesignData(SkeletonUnitModelData):
 
         # Bound the capcity of the tank in the specified range
         tank_size_range = self.config.tank_size_range
-        self.tank_capacity_lb_con = Constraint(expr=self.tank_capacity >= self.build_tank * tank_size_range[0])
-        self.tank_capacity_ub_con = Constraint(expr=self.tank_capacity <= self.build_tank * tank_size_range[1])
+        self.tank_capacity_lb_con = Constraint(
+            expr=self.tank_capacity >= self.build_tank * tank_size_range[0]
+        )
+        self.tank_capacity_ub_con = Constraint(
+            expr=self.tank_capacity <= self.build_tank * tank_size_range[1]
+        )
 
         self.capex = Expression(
-            expr=0.98167214 * self.tank_capacity + 2779.90543786 * self.build_tank,
+            expr=_capex[0] * self.tank_capacity + _capex[1] * self.build_tank,
             doc="CAPEX of the oxygen storage tank [in 1000$]",
         )
 
         self.fom = Expression(
-            expr=0.0317 * self.capex,
+            expr=_fom_factor * self.capex,
             doc="FOM of the tank [in $1000]",
         )
 
@@ -555,6 +637,10 @@ class OxygenTankOperationData(SkeletonUnitModelData):
         super().build()
 
         design_blk = self.config.design_blk
+        params = design_blk.config.model_params
+        _min_holdup = params["min_holdup"]
+        _power_req = params["power_requirement"]
+        _o2_flow = params["o2_flow"]
 
         self.initial_holdup = Var(
             within=NonNegativeReals,
@@ -584,7 +670,7 @@ class OxygenTankOperationData(SkeletonUnitModelData):
 
         # Holdup must be greater than 10% of the tank capacity at all times
         self.holdup_constraint = Constraint(
-            expr=self.final_holdup >= 0.1 * design_blk.tank_capacity,
+            expr=self.final_holdup >= _min_holdup * design_blk.tank_capacity,
         )
 
         # Holdup cannot exceed the capacity of the tank
@@ -599,6 +685,6 @@ class OxygenTankOperationData(SkeletonUnitModelData):
 
         # Power requirement for discharging 
         self.power = Expression(
-            expr=1.47054 * (self.lox_out / 112.0865459),
+            expr=_power_req * (self.lox_out / _o2_flow),
             doc="Power requirement for discharging LOX [in MW]",
         )

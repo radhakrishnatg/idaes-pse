@@ -34,6 +34,8 @@ from .dfc_flowsheet import (
 
 from .dfc_startup_shutdown import dfc_startup_shutdown_constraints
 from .asu_startup_shutdown import asu_startup_shutdown_constraints
+import idaes.power_generation.flowsheets.direct_fired_cycle. \
+    default_model_parameters as dmp
 
 
 # Source: DOE ARPA - E
@@ -66,12 +68,7 @@ def _write_results(
     includes_nlu=False,
     filename="results",
 ):
-    # Create a directory to store NPV optimization results
-    cwd = os.getcwd()
-    _filename = cwd + "\\npv_results\\" + filename + ".xlsx"
-
-    if not os.path.exists(cwd + "\\npv_results"):
-        os.mkdir(os.path.join(cwd, "npv_results"))
+    _filename = filename + ".xlsx"
 
     set_flowsheets = m.mp_model.period[:].fs
 
@@ -130,6 +127,17 @@ def _write_results(
     lower_bnd = sol["Problem"][0]["Lower bound"]
     upper_bnd = sol["Problem"][0]["Upper bound"]
 
+    elec_rev = [value(fs.electricity_revenue) for fs in set_flowsheets]
+    elec_cost = [value(fs.electricity_cost) for fs in set_flowsheets]
+    fuel_cost = [value(fs.fuel_cost) for fs in set_flowsheets]
+    co2_price = [value(fs.co2_price) for fs in set_flowsheets]
+    dfc_vom = [value(fs.dfc.non_fuel_vom) for fs in set_flowsheets]
+    asu_vom = [value(fs.asu.non_fuel_vom) for fs in set_flowsheets]
+    if includes_nlu:
+        nlu_vom = [value(fs.nlu.non_fuel_vom) for fs in set_flowsheets]
+    else:
+        nlu_vom = [0]
+
     solution = {
         "Lower bound": lower_bnd,
         "Upper bound": upper_bnd,
@@ -150,16 +158,26 @@ def _write_results(
         "ASU Shutdowns": sum(results["ASU_Shutdown"]),
         "Total Power Produced": sum(results["DFC_Power"]),
         "Total Power Sold": sum(results["Power_to_grid"]),
-        "Total CAPEX": m.CAPEX.value / 1000,
-        "Total FOM": m.FOM.value / 1000,
-        "Total Net Profit": m.NET_PROFIT.value / 1000,
+        "DFC CAPEX": value(m.dfc_design.capex) / 1e3,
+        "ASU CAPEX": value(m.asu_design.capex) / 1e3,
+        "NLU CAPEX": value(m.nlu_design.capex) / 1e3 if hasattr(m, "nlu_Design") else 0,
+        "TANK CAPEX": value(m.tank_design.capex) / 1e3 if hasattr(m, "tank_design") else 0,
+        "Total CAPEX": m.CAPEX.value / 1e3,
+        "Total FOM": m.FOM.value / 1e3,
+        "Total Revenue": sum(elec_rev) / 1e3,
+        "Total Elec Cost": sum(elec_cost) / 1e3,
+        "Total Fuel Cost": sum(fuel_cost) / 1e3,
+        "Total CO2 Price": sum(co2_price) / 1e3,
+        "Total VOM": (sum(dfc_vom) + sum(asu_vom) + sum(nlu_vom)) / 1e3,
+        "Total Corp. tax": m.CORP_TAX.value / 1e3,
+        "Total Net Profit": m.NET_PROFIT.value / 1e3,
 
         "Num Vars": sol["Problem"][0]["Number of variables"],
         "Num Bin Vars": sol["Problem"][0]["Number of binary variables"],
         "Num constraints": sol["Problem"][0]["Number of constraints"],
     }
 
-    with open(cwd + "\\npv_results\\" + filename + ".json", "w") as fp:
+    with open(filename + ".json", "w") as fp:
         json.dump(solution, fp, indent=4)
 
 
@@ -171,17 +189,24 @@ def npv_model_dfc_asu(
     dataset="NREL",
     location="PJM-W",
     carbon_tax=150,
+    dfc_params=dmp.DFC_PARAMS,
+    asu_params=dmp.ASU_PARAMS,
+    cost_params=dmp.CASHFLOW_PARAMS,
+    solver=None,
+    folder="",
 ):
     if dataset == "NREL":
         cost_ng = NG_PRICE_DATA[dataset][carbon_tax][location]
     else:
         cost_ng = NG_PRICE_DATA[dataset]
 
+    penalty = cost_params["electricity_cost"] / 1e3
+
     m = ConcreteModel()
     get_lmp_data(m, dataset=dataset, location=location, carbon_tax=carbon_tax)
 
-    m.dfc_design = DFCDesign()
-    m.asu_design = MonoASUDesign()
+    m.dfc_design = DFCDesign(model_params=dfc_params)
+    m.asu_design = MonoASUDesign(model_params=asu_params)
 
     # Currently, we are not varying the capacity of the power cycle, so fixing the value
     # of capacity. Also, we want the power cycle to be built, so fixing build_dfc. 
@@ -201,7 +226,13 @@ def npv_model_dfc_asu(
 
     # Append cashflows at each hour
     for t in m.set_time:
-        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng, carbon_price=carbon_tax / 1000)
+        append_op_costs_dfc(
+            m=m.mp_model.period[t], 
+            lmp=m.LMP[t], 
+            penalty=penalty, 
+            cost_ng=cost_ng, 
+            carbon_price=carbon_tax / 1e3,
+        )
 
     # Append startup and shutdown constraints for the power cycle
     m.mp_model.dfc_su_sd = Block(rule=dfc_startup_shutdown_constraints)
@@ -210,32 +241,22 @@ def npv_model_dfc_asu(
     m.mp_model.asu_su_sd = Block(rule=asu_startup_shutdown_constraints)
 
     # Append the overall cashflows
-    append_cashflows(m)
+    append_cashflows(m, cost_params)
 
     # Declare the objective function
     m.obj = Objective(expr=m.npv, sense=maximize)
 
     # Use Gurobi solver
-    solver = SolverFactory("gurobi")
-    # solver.options['NonConvex'] = 2
-    solver.options['MIPGap'] = 0.01
-    solver.options['TimeLimit'] = 7500
-    solver.options['OutputFlag'] = 1
-
-    # Use BARON solver
-    # solver = SolverFactory("baron")
-    # solver.options["epsr"] = 0.01
-    # solver.options["maxtime"] = 7500
-
-    # Use SCIP solver
-    # solver = SolverFactory("scip")
-    # solver.options["limits/gap"] = 0.01
-    # solver.options["limits/time"] = 7500
-    # solver.options["lp/threads"] = 16
+    if solver is None:
+        solver = SolverFactory("gurobi")
+        solver.options['MIPGap'] = 0.01
+        solver.options['TimeLimit'] = 7500
+        solver.options['OutputFlag'] = 1
 
     sol = solver.solve(m, tee=True)
 
-    _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax))
+    _filename = folder + dataset + "_" + location + "_" + str(carbon_tax)
+    _write_results(m, sol, filename=_filename)
 
     return m, sol
 
@@ -244,18 +265,30 @@ def npv_model_dfc_asu_with_lox(
     dataset="NREL",
     location="PJM-W",
     carbon_tax=150,
+    dfc_params=dmp.DFC_PARAMS,
+    asu_params=dmp.ASU_PARAMS,
+    tank_params=dmp.O2_TANK_PARAMS,
+    cost_params=dmp.CASHFLOW_PARAMS,
+    solver=None,
+    folder="",
 ):
     if dataset == "NREL":
         cost_ng = NG_PRICE_DATA[dataset][carbon_tax][location]
     else:
         cost_ng = NG_PRICE_DATA[dataset]
 
+    penalty = cost_params["electricity_cost"] / 1e3
+
     m = ConcreteModel()
     get_lmp_data(m, dataset=dataset, location=location, carbon_tax=carbon_tax)
 
-    m.dfc_design = DFCDesign()
-    m.asu_design = MonoASUDesign(o2_flow_range=(10, 130))
-    m.tank_design = OxygenTankDesign(tank_size_range=(10, 400000))
+    m.dfc_design = DFCDesign(model_params=dfc_params)
+    m.asu_design = MonoASUDesign(
+        o2_flow_range=(10, 130), model_params=asu_params,
+    )
+    m.tank_design = OxygenTankDesign(
+        tank_size_range=(10, 400000), model_params=tank_params,
+    )
 
     # Currently, we are not varying the capacity of the power cycle, so fixing the value
     # of capacity. Also, we want the power cycle to be built, so fixing build_dfc. 
@@ -276,7 +309,13 @@ def npv_model_dfc_asu_with_lox(
 
     # Append cashflows at each hour
     for t in m.set_time:
-        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng, carbon_price=carbon_tax / 1000)
+        append_op_costs_dfc(
+            m=m.mp_model.period[t], 
+            lmp=m.LMP[t], 
+            penalty=penalty, 
+            cost_ng=cost_ng, 
+            carbon_price=carbon_tax / 1e3,
+        )
 
     # Append startup and shutdown constraints for the power cycle
     m.mp_model.dfc_su_sd = Block(rule=dfc_startup_shutdown_constraints)
@@ -285,37 +324,36 @@ def npv_model_dfc_asu_with_lox(
     m.mp_model.asu_su_sd = Block(rule=asu_startup_shutdown_constraints)
 
     # Set the initial holdup of the tank
-    m.mp_model.initial_tank_level = Constraint(
-        expr=m.mp_model.period[1].fs.tank.initial_holdup == 0.1 * m.tank_design.tank_capacity
-    )
+    if tank_params["tank_constraint"] == "initial_holdup":
+        m.mp_model.initial_tank_level = Constraint(
+            expr=m.mp_model.period[1].fs.tank.initial_holdup == 
+            tank_params["min_holdup"] * m.tank_design.tank_capacity
+        )
+
+    elif tank_params["tank_constraint"] == "periodic":
+        m.mp_model.periodic_constraint = Constraint(
+            expr=m.mp_model.period[1].fs.tank.initial_holdup == 
+            m.mp_model.period[8760].fs.tank.holdup
+        )
 
     # Append the overall cashflows
-    append_cashflows(m)
+    append_cashflows(m, cost_params)
 
     # Declare the objective function
     m.obj = Objective(expr=m.npv, sense=maximize)
 
     # Use Gurobi solver
-    solver = SolverFactory("gurobi")
-    solver.options['NonConvex'] = 2
-    solver.options['MIPGap'] = 0.01
-    solver.options['TimeLimit'] = 7500
-    solver.options['OutputFlag'] = 1
-
-    # Use BARON solver
-    # solver = SolverFactory("baron")
-    # solver.options["epsr"] = 0.01
-    # solver.options["maxtime"] = 7500
-
-    # Use SCIP solver
-    # solver = SolverFactory("scip")
-    # solver.options["limits/gap"] = 0.01
-    # solver.options["limits/time"] = 7500
-    # solver.options["lp/threads"] = 16
+    if solver is None:
+        solver = SolverFactory("gurobi")
+        solver.options['NonConvex'] = 2
+        solver.options['MIPGap'] = 0.01
+        solver.options['TimeLimit'] = 7500
+        solver.options['OutputFlag'] = 1
 
     sol = solver.solve(m, tee=True)
 
-    _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax), lox_withdrawal=True)
+    _filename = folder + dataset + "_" + location + "_" + str(carbon_tax)
+    _write_results(m, sol, filename=_filename, lox_withdrawal=True)
 
     return m, sol
 
@@ -324,7 +362,17 @@ def npv_model_dfc_asu_nlu(
     dataset="NREL",
     location="PJM-W",
     carbon_tax=150,
+    dfc_params=dmp.DFC_PARAMS,
+    asu_params=dmp.ASU_PARAMS,
+    nlu_params=dmp.NLU_PARAMS,
+    tank_params=dmp.O2_TANK_PARAMS,
+    cost_params=dmp.CASHFLOW_PARAMS,
+    solver=None,
+    folder="",
 ):
+    
+    penalty = cost_params["electricity_cost"] / 1e3
+
     if dataset == "NREL":
         cost_ng = NG_PRICE_DATA[dataset][carbon_tax][location]
     else:
@@ -333,10 +381,16 @@ def npv_model_dfc_asu_nlu(
     m = ConcreteModel()
     get_lmp_data(m, dataset=dataset, location=location, carbon_tax=carbon_tax)
 
-    m.dfc_design = DFCDesign()
-    m.asu_design = MonoASUDesign(o2_flow_range=(10, 130))
-    m.nlu_design = NLUDesign(o2_flow_range=(10, 130))
-    m.tank_design = OxygenTankDesign(tank_size_range=(10, 400000))
+    m.dfc_design = DFCDesign(model_params=dfc_params)
+    m.asu_design = MonoASUDesign(
+        o2_flow_range=(10, 130), model_params=asu_params,
+    )
+    m.nlu_design = NLUDesign(
+        o2_flow_range=(10, 130), model_params=nlu_params,
+    )
+    m.tank_design = OxygenTankDesign(
+        tank_size_range=(10, 400000), model_params=tank_params,
+    )
 
     # Currently, we are not varying the capacity of the power cycle, so fixing the value
     # of capacity. Also, we want the power cycle to be built, so fixing build_dfc. 
@@ -358,7 +412,13 @@ def npv_model_dfc_asu_nlu(
 
     # Append cashflows at each hour
     for t in m.set_time:
-        append_op_costs_dfc(m=m.mp_model.period[t], lmp=m.LMP[t], cost_ng=cost_ng, carbon_price=carbon_tax / 1000)
+        append_op_costs_dfc(
+            m=m.mp_model.period[t], 
+            lmp=m.LMP[t], 
+            penalty=penalty, 
+            cost_ng=cost_ng, 
+            carbon_price=carbon_tax / 1e3,
+        )
 
     # Append startup and shutdown constraints for the power cycle
     m.mp_model.dfc_su_sd = Block(rule=dfc_startup_shutdown_constraints)
@@ -367,36 +427,34 @@ def npv_model_dfc_asu_nlu(
     m.mp_model.asu_su_sd = Block(rule=asu_startup_shutdown_constraints)
 
     # Set the initial holdup of the tank
-    m.mp_model.initial_tank_level = Constraint(
-        expr=m.mp_model.period[1].fs.tank.initial_holdup == 0.1 * m.tank_design.tank_capacity
-    )
+    if tank_params["tank_constraint"] == "initial_holdup":
+        m.mp_model.initial_tank_level = Constraint(
+            expr=m.mp_model.period[1].fs.tank.initial_holdup == 
+            tank_params["min_holdup"] * m.tank_design.tank_capacity
+        )
+
+    elif tank_params["tank_constraint"] == "periodic":
+        m.mp_model.periodic_constraint = Constraint(
+            expr=m.mp_model.period[1].fs.tank.initial_holdup == 
+            m.mp_model.period[8760].fs.tank.holdup
+        )
 
     # Append the overall cashflows
-    append_cashflows(m)
+    append_cashflows(m, cost_params)
 
     # Declare the objective function
     m.obj = Objective(expr=m.npv, sense=maximize)
 
     # Use Gurobi solver
-    solver = SolverFactory("gurobi")
-    # solver.options['NonConvex'] = 2
-    solver.options['MIPGap'] = 0.01
-    solver.options['TimeLimit'] = 15000
-    solver.options['OutputFlag'] = 1
-
-    # Use BARON solver
-    # solver = SolverFactory("baron")
-    # solver.options["epsr"] = 0.01
-    # solver.options["maxtime"] = 7500
-
-    # Use SCIP solver
-    # solver = SolverFactory("scip")
-    # solver.options["limits/gap"] = 0.01
-    # solver.options["limits/time"] = 7500
-    # solver.options["lp/threads"] = 16
+    if solver is None:
+        solver = SolverFactory("gurobi")
+        solver.options['MIPGap'] = 0.01
+        solver.options['TimeLimit'] = 7200
+        solver.options['OutputFlag'] = 1
 
     sol = solver.solve(m, tee=True)
 
-    _write_results(m, sol, filename=dataset + "_" + location + "_" + str(carbon_tax), includes_nlu=True)
+    _filename = folder + dataset + "_" + location + "_" + str(carbon_tax)
+    _write_results(m, sol, filename=_filename, includes_nlu=True)
 
     return m, sol

@@ -10,10 +10,8 @@ from .unit_models import (
     MonoASUOperation,
     NLUOperation,
     OxygenTankOperation,
-    NG_HHV,
-    HR_TO_SEC,
-    LBS_TO_KG,
 )
+from .default_model_parameters import NG_HHV, HR_TO_SEC
 
 
 def build_dfc_flowsheet(
@@ -122,7 +120,7 @@ def build_dfc_flowsheet_with_lox(
 
     # Liquid oxygen balance across the ASU
     m.fs.lox_balance = Constraint(
-        expr=m.fs.asu.o2_flow - m.fs.gox_fraction * m.fs.asu.o2_flow ==
+        expr=m.fs.asu.o2_flow - m.fs.asu.o2_flow * m.fs.gox_fraction ==
         m.fs.tank.lox_in,
     )
 
@@ -198,9 +196,9 @@ def build_dfc_flowsheet_with_nlu(
 def append_op_costs_dfc(
     m,
     lmp,
-    penalty=0.005,
-    cost_ng=2,
-    carbon_price=0.1,
+    penalty,
+    cost_ng,
+    carbon_price,
 ):
     """Append cost and revenue expressions for each time step
 
@@ -213,8 +211,10 @@ def append_op_costs_dfc(
         cost_ng: Cost of natural gas [in $/MMBtu]
     """
 
-    m.fs.electricity_revenue = Expression(
-        expr=lmp * m.fs.power_dfc_to_grid - (lmp + penalty) * (m.fs.power_grid_to_asu
+    m.fs.electricity_revenue = Expression(expr=lmp * m.fs.power_dfc_to_grid) 
+
+    m.fs.electricity_cost = Expression(    
+        expr=(lmp + penalty) * (m.fs.power_grid_to_asu
         + (m.fs.power_grid_to_nlu if hasattr(m.fs, "nlu") else 0)
         + (m.fs.power_grid_to_tank if hasattr(m.fs, "tank") else 0)
         ),
@@ -226,47 +226,26 @@ def append_op_costs_dfc(
         doc="Operational cost associated with fuel consumption [in $1000]",
     )
 
-    # Total VOM = 3339.92 + 18048.07 = 21387.99. Split the VOM for inidividual units
-    # in the ratio of their CAPEX. 1128855 + (1128855 + 545522) = 0.6742.
-    # The VOM of the DFC cycle = 0.6742 * 21387.99 = 14419.78286 
-    #  ==> 14419.78286 / (0.85 * 8760) = 1.93658
-    # The VOM of the ASU unit = 0.3258 * 21387.99 = 6968.207
-    #  ==> 6968.207 / (0.85 * 8760) = 0.93583
-
-    # Other VOM for DFC: Calculated as $3339.92 / (0.85 * 8760) = 0.4485
-    m.fs.vom_dfc = Expression(
-        expr=1.93658 * (m.fs.dfc.power / 838.11322145),
-    )
-
-    # Other VOM for ASU: Calculated as $18048.07 / (0.85 * 8760) = 2.4239
-    m.fs.vom_asu = Expression(
-        expr=0.93583 * (m.fs.asu.o2_flow / 109.2912232),
-    )
-
-    # Other VOM for NLU: Calculated as $5404.96 / (0.85 * 8760) = 0.7259
-    if hasattr(m.fs, "nlu"):
-        m.fs.vom_nlu = Expression(
-            expr=0.7259 * (m.fs.nlu.o2_flow / 109.2912232),
-        )
-
     # TODO: Add CO2 emissions for the startup and shutdown (likely negligible)
-    m.co2_emissions = Expression(
-        expr=24 * LBS_TO_KG * m.fs.dfc.power * carbon_price / 1000,
+    m.fs.co2_price = Expression(
+        expr=m.fs.dfc.co2_emissions * carbon_price / 1000,
+        doc="Carbon price per hour [in $1000]",
     )
 
     m.fs.net_cash_flow = Expression(
-        expr=m.fs.electricity_revenue - m.fs.fuel_cost
-        - m.fs.vom_dfc - m.fs.vom_asu - (m.fs.vom_nlu if hasattr(m.fs, "nlu") else 0)
-        - m.co2_emissions,
+        expr=m.fs.electricity_revenue - m.fs.electricity_cost
+        - m.fs.fuel_cost
+        - m.fs.dfc.non_fuel_vom - m.fs.asu.non_fuel_vom 
+        - (m.fs.nlu.non_fuel_vom if hasattr(m.fs, "nlu") else 0)
+        - m.fs.co2_price,
     )
 
 
-def append_cashflows(
-    m,
-    plant_life=30,
-    tax_rate=0.2,
-    discount_rate=0.075,
-):
+def append_cashflows(m, params):
+    plant_life = params["plant_life"]
+    tax_rate = params["tax_rate"]
+    discount_rate = params["discount_rate"]
+
     m.CAPEX = Var(
         within=NonNegativeReals,
         doc="Total CAPEX of the plant [in $1000]",
@@ -278,6 +257,10 @@ def append_cashflows(
     m.DEPRECIATION = Var(
         within=NonNegativeReals,
         doc="Depreciation value per year [in $1000]"
+    )
+    m.CORP_TAX = Var(
+        within=NonNegativeReals,
+        doc="Net corporate tax per year [in $1000]",
     )
     m.NET_PROFIT = Var(
         doc="Net profit per year [in $1000]",
@@ -299,11 +282,21 @@ def append_cashflows(
         expr=m.DEPRECIATION == m.CAPEX / plant_life,
         doc="Straight line depreciation with zero salvage value [in $1000]",
     )
-    m.net_profit_calculation = Constraint(
-        expr=m.NET_PROFIT == m.DEPRECIATION + (1 - tax_rate) * (
-        + sum(m.mp_model.period[t].fs.net_cash_flow for t in m.set_time)
-        - m.FOM - m.DEPRECIATION
+    
+    # Tax = max{0, Formula below}. We will relax it to Tax >= max{0, Formula below}
+    # The inequality will be binding for the optimal solution. 
+    m.corp_tax_calculation = Constraint(
+        expr=m.CORP_TAX >= tax_rate * (
+            sum(m.mp_model.period[t].fs.net_cash_flow for t in m.set_time)
+            - m.FOM - m.DEPRECIATION
         ),
+        doc="Calculates the total corporate tax [in $1000]",
+    )
+
+    m.net_profit_calculation = Constraint(
+        expr=m.NET_PROFIT == 
+        + sum(m.mp_model.period[t].fs.net_cash_flow for t in m.set_time)
+        - m.FOM - m.CORP_TAX,
         doc="Calculate the net profit generated in a year [in $1000]",
     )
 
