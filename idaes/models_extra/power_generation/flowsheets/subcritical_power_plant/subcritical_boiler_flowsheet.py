@@ -1,18 +1,25 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Dynamic sub-flowsheet for a subcritical 300MWe boiler system
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-function-docstring
+
+# Model needs to access private flow terms
+# pylint: disable=protected-access
+
+import matplotlib.pyplot as plt
 
 # Import Pyomo libraries
 import pyomo.environ as pyo
@@ -20,7 +27,7 @@ from pyomo.network import Arc
 
 # Import IDAES core
 from idaes.core.util.model_statistics import degrees_of_freedom
-from idaes.core.util import copy_port_values as _set_port
+from idaes.core.util.initialization import propagate_state as _set_port
 from idaes.core.solvers import get_solver
 from idaes.core import FlowsheetBlock
 import idaes.logger as idaeslog
@@ -55,8 +62,6 @@ from idaes.models_extra.power_generation.flowsheets.subcritical_power_plant.gene
 import idaes.core.util.scaling as iscale
 from idaes.core.util.dyn_utils import copy_values_at_time, copy_non_time_indexed_values
 
-import matplotlib.pyplot as plt
-
 __author__ = "Boiler Subsystem Team (J. Ma, M. Zamarripa)"
 
 
@@ -76,185 +81,157 @@ def add_unit_models(m):
 
     # Unit model for boiler fire side based on surrogate
     fs.aBoiler = BoilerFireside(
-        default={
-            "dynamic": False,
-            "property_package": prop_gas,
-            "calculate_PA_SA_flows": True,
-            "number_of_zones": 12,
-            "has_platen_superheater": True,
-            "has_roof_superheater": True,
-            "surrogate_dictionary": data_dic,
-        }
+        dynamic=False,
+        property_package=prop_gas,
+        calculate_PA_SA_flows=True,
+        number_of_zones=12,
+        has_platen_superheater=True,
+        has_roof_superheater=True,
+        surrogate_dictionary=data_dic,
     )
 
     # Unit model for boiler drum
     fs.aDrum = Drum1D(
-        default={
-            "property_package": prop_water,
-            "has_holdup": True,
-            "has_heat_transfer": True,
-            "has_pressure_change": True,
-            "finite_elements": 4,
-            "drum_inner_diameter": 1.8,
-            "drum_thickness": 0.13,
-        }
+        property_package=prop_water,
+        has_holdup=True,
+        has_heat_transfer=True,
+        has_pressure_change=True,
+        finite_elements=4,
+        drum_inner_diameter=1.8,
+        drum_thickness=0.13,
     )
 
     # Unit model for splitter from drum to downcomers and blowdown
     fs.blowdown_split = HelmSplitter(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "outlet_list": ["FW_Downcomer", "FW_Blowdown"],
-        }
+        dynamic=False,
+        property_package=prop_water,
+        outlet_list=["FW_Downcomer", "FW_Blowdown"],
     )
 
     # Unit model for downcomer
     fs.aDowncomer = Downcomer(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "has_holdup": True,
-            "has_heat_transfer": True,
-        }
+        dynamic=False,
+        property_package=prop_water,
+        has_holdup=True,
+        has_heat_transfer=True,
     )
 
     # Unit models for 12 waterwall sections
     fs.Waterwalls = WaterwallSection(
         fs.ww_zones,
-        default={
-            "has_holdup": True,
-            "property_package": prop_water,
-            "has_heat_transfer": True,
-            "has_pressure_change": True,
-        },
+        has_holdup=True,
+        property_package=prop_water,
+        has_heat_transfer=True,
+        has_pressure_change=True,
     )
 
     # Unit model for roof superheater
     fs.aRoof = SteamHeater(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "has_holdup": True,
-            "has_heat_transfer": True,
-            "has_pressure_change": True,
-            "single_side_only": True,
-        }
+        dynamic=False,
+        property_package=prop_water,
+        has_holdup=True,
+        has_heat_transfer=True,
+        has_pressure_change=True,
+        single_side_only=True,
     )
 
     # Unit model for platen superheater
     fs.aPlaten = SteamHeater(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "has_holdup": True,
-            "has_heat_transfer": True,
-            "has_pressure_change": True,
-            "single_side_only": False,
-        }
+        dynamic=False,
+        property_package=prop_water,
+        has_holdup=True,
+        has_heat_transfer=True,
+        has_pressure_change=True,
+        single_side_only=False,
     )
 
     # Unit model for 1st reheater
     fs.aRH1 = HeatExchangerCrossFlow2D_Header(
-        default={
-            "tube_side": {"property_package": prop_water, "has_pressure_change": True},
-            "shell_side": {"property_package": prop_gas, "has_pressure_change": True},
-            "finite_elements": 4,
-            "flow_type": "counter_current",
-            "tube_arrangement": "in-line",
-            "tube_side_water_phase": "Vap",
-            "has_radiation": True,
-            "radial_elements": 5,
-            "tube_inner_diameter": 2.25 * 0.0254,
-            "tube_thickness": 0.15 * 0.0254,
-            "has_header": False,
-        }
+        tube_side={"property_package": prop_water, "has_pressure_change": True},
+        shell_side={"property_package": prop_gas, "has_pressure_change": True},
+        finite_elements=4,
+        flow_type="counter_current",
+        tube_arrangement="in-line",
+        tube_side_water_phase="Vap",
+        has_radiation=True,
+        radial_elements=5,
+        tube_inner_diameter=2.25 * 0.0254,
+        tube_thickness=0.15 * 0.0254,
+        has_header=False,
     )
 
     # Unit model for 2nd reheater
     fs.aRH2 = HeatExchangerCrossFlow2D_Header(
-        default={
-            "tube_side": {"property_package": prop_water, "has_pressure_change": True},
-            "shell_side": {"property_package": prop_gas, "has_pressure_change": True},
-            "finite_elements": 2,
-            "flow_type": "counter_current",
-            "tube_arrangement": "in-line",
-            "tube_side_water_phase": "Vap",
-            "has_radiation": True,
-            "radial_elements": 5,
-            "tube_inner_diameter": 2.25 * 0.0254,
-            "tube_thickness": 0.15 * 0.0254,
-            "has_header": False,
-        }
+        tube_side={"property_package": prop_water, "has_pressure_change": True},
+        shell_side={"property_package": prop_gas, "has_pressure_change": True},
+        finite_elements=2,
+        flow_type="counter_current",
+        tube_arrangement="in-line",
+        tube_side_water_phase="Vap",
+        has_radiation=True,
+        radial_elements=5,
+        tube_inner_diameter=2.25 * 0.0254,
+        tube_thickness=0.15 * 0.0254,
+        has_header=False,
     )
 
     # Unit model for primary superheater with header
     fs.aPSH = HeatExchangerCrossFlow2D_Header(
-        default={
-            "tube_side": {"property_package": prop_water, "has_pressure_change": True},
-            "shell_side": {"property_package": prop_gas, "has_pressure_change": True},
-            "finite_elements": 6,
-            "flow_type": "counter_current",
-            "tube_arrangement": "in-line",
-            "tube_side_water_phase": "Vap",
-            "has_radiation": True,
-            "radial_elements": 5,
-            "tube_inner_diameter": 1.5 * 0.0254,
-            "tube_thickness": 0.16 * 0.0254,
-            "header_radial_elements": 5,
-            "header_inner_diameter": 12 * 0.0254,
-            "header_wall_thickness": 1.35 * 0.0254,
-        }
+        tube_side={"property_package": prop_water, "has_pressure_change": True},
+        shell_side={"property_package": prop_gas, "has_pressure_change": True},
+        finite_elements=6,
+        flow_type="counter_current",
+        tube_arrangement="in-line",
+        tube_side_water_phase="Vap",
+        has_radiation=True,
+        radial_elements=5,
+        tube_inner_diameter=1.5 * 0.0254,
+        tube_thickness=0.16 * 0.0254,
+        header_radial_elements=5,
+        header_inner_diameter=12 * 0.0254,
+        header_wall_thickness=1.35 * 0.0254,
     )
 
     # Unit model for economizer
     fs.aECON = HeatExchangerCrossFlow2D_Header(
-        default={
-            "tube_side": {"property_package": prop_water, "has_pressure_change": True},
-            "shell_side": {"property_package": prop_gas, "has_pressure_change": True},
-            "finite_elements": 5,
-            "flow_type": "counter_current",
-            "tube_arrangement": "in-line",
-            "tube_side_water_phase": "Liq",
-            "has_radiation": False,
-            "radial_elements": 5,
-            "tube_inner_diameter": 1.5 * 0.0254,
-            "tube_thickness": 0.15 * 0.0254,
-            "has_header": False,
-        }
+        tube_side={"property_package": prop_water, "has_pressure_change": True},
+        shell_side={"property_package": prop_gas, "has_pressure_change": True},
+        finite_elements=5,
+        flow_type="counter_current",
+        tube_arrangement="in-line",
+        tube_side_water_phase="Liq",
+        has_radiation=False,
+        radial_elements=5,
+        tube_inner_diameter=1.5 * 0.0254,
+        tube_thickness=0.15 * 0.0254,
+        has_header=False,
     )
 
     # Unit model for water pipe from economizer outlet to drum
     fs.aPipe = WaterPipe(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "has_holdup": True,
-            "has_heat_transfer": False,
-            "has_pressure_change": True,
-            "water_phase": "Liq",
-            "contraction_expansion_at_end": "None",
-        }
+        dynamic=False,
+        property_package=prop_water,
+        has_holdup=True,
+        has_heat_transfer=False,
+        has_pressure_change=True,
+        water_phase="Liq",
+        contraction_expansion_at_end="None",
     )
 
     # Unit model for a mixer to mix hot primary air with tempering air
     fs.Mixer_PA = Mixer(
-        default={
-            "dynamic": False,
-            "property_package": prop_gas,
-            "momentum_mixing_type": MomentumMixingType.equality,
-            "inlet_list": ["PA_inlet", "TA_inlet"],
-        }
+        dynamic=False,
+        property_package=prop_gas,
+        momentum_mixing_type=MomentumMixingType.equality,
+        inlet_list=["PA_inlet", "TA_inlet"],
     )
 
     # Unit model for attemperator for main steam before platen SH
     fs.Attemp = HelmMixer(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "momentum_mixing_type": MomentumMixingType.equality,
-            "inlet_list": ["Steam_inlet", "Water_inlet"],
-        }
+        dynamic=False,
+        property_package=prop_water,
+        momentum_mixing_type=MomentumMixingType.equality,
+        inlet_list=["Steam_inlet", "Water_inlet"],
     )
 
     # Unit model for air preheater as three-stream heat exchanger
@@ -263,17 +240,15 @@ def add_unit_models(m):
     # side_2: priamry air
     # side_3: secondry air
     fs.aAPH = HeatExchangerWith3Streams(
-        default={
-            "dynamic": False,
-            "side_1_property_package": prop_gas,
-            "side_2_property_package": prop_gas,
-            "side_3_property_package": prop_gas,
-            "has_heat_transfer": True,
-            "has_pressure_change": True,
-            "has_holdup": False,
-            "flow_type_side_2": "counter-current",
-            "flow_type_side_3": "counter-current",
-        }
+        dynamic=False,
+        side_1_property_package=prop_gas,
+        side_2_property_package=prop_gas,
+        side_3_property_package=prop_gas,
+        has_heat_transfer=True,
+        has_pressure_change=True,
+        has_holdup=False,
+        flow_type_side_2="counter-current",
+        flow_type_side_3="counter-current",
     )
     return m
 
@@ -323,7 +298,7 @@ def set_arcs_and_constraints(m):
     # Expand arcs. This must be called after discretization call
     pyo.TransformationFactory("network.expand_arcs").apply_to(fs)
 
-    # Follwing are flowsheet level constraints
+    # Following are flowsheet level constraints
     #
     # Constraint to set boiler zone heat duty equal to waterwall section duty
     @fs.Constraint(fs.time, fs.ww_zones, doc="boiler zone heat duty")
@@ -410,7 +385,7 @@ def set_arcs_and_constraints(m):
             30000 * b.aBoiler.flowrate_coal_raw[t] + 100000
         )
 
-    # The follwing three constraints are related to the actual operating
+    # The following three constraints are related to the actual operating
     # curves set by the controllers or by the boiler manufacturers
     #
     # Constraints to set tempering air (unheated) to total PA
@@ -715,7 +690,9 @@ def initialize(m):
     outlvl = idaeslog.INFO_LOW
     _log = idaeslog.getLogger(fs.name, outlvl, tag="unit")
     solve_log = idaeslog.getSolveLogger(fs.name, outlvl, tag="unit")
-    solver = get_solver()
+    solver = get_solver(
+        options={"linear_solver": "ma57", "OF_ma57_automatic_scaling": "yes"}
+    )
 
     # set initial condition to steady-state condition for dynamic flowsheet
     if m.dynamic is True:
@@ -814,7 +791,6 @@ def initialize(m):
     if m.dynamic is False:
         fs.aECON.initialize(outlvl=outlvl)
         _log.info("Completed economizer initialization")
-
     if m.dynamic is False:
         _set_port(fs.aPipe.inlet, fs.aECON.tube_outlet)
         fs.aPipe.initialize(outlvl=outlvl)
@@ -1059,7 +1035,7 @@ def set_scaling_factors(m):
         iscale.set_scaling_factor(ww.energy_holdup_metal, 1e-6)
         iscale.set_scaling_factor(ww.N_Re, 1e-6)
         iscale.set_scaling_factor(ww.pitch, 1e3)
-        for j, c in ww.hconv_lo_eqn.items():
+        for c in ww.hconv_lo_eqn.values():
             iscale.constraint_scaling_transform(c, 1e-2)
 
     iscale.set_scaling_factor(fs.aRoof.heat_fireside, 1e-6)
@@ -1078,7 +1054,7 @@ def set_scaling_factors(m):
     iscale.set_scaling_factor(fs.aDrum.control_volume.energy_holdup, 1e-10)
     iscale.set_scaling_factor(fs.aDrum.control_volume.material_holdup, 1e-5)
     if m.dynamic:
-        for t, c in fs.aDrum.control_volume.energy_accumulation_disc_eq.items():
+        for c in fs.aDrum.control_volume.energy_accumulation_disc_eq.values():
             iscale.constraint_scaling_transform(c, 1e-4)
 
     iscale.set_scaling_factor(fs.aDowncomer.control_volume.energy_holdup, 1e-10)
@@ -1096,36 +1072,38 @@ def set_scaling_factors(m):
     iscale.set_scaling_factor(fs.aECON.tube._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aECON.shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(fs.aECON.tube.enthalpy_flow_dx, 1e-7)
-    for t, c in fs.aECON.shell.enthalpy_flow_dx_disc_eq.items():
+    iscale.set_scaling_factor(fs.aECON.shell.heat, 1e-7)
+    iscale.set_scaling_factor(fs.aECON.tube.heat, 1e-7)
+    for c in fs.aECON.shell.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
-    for t, c in fs.aECON.tube.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aECON.tube.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
 
     iscale.set_scaling_factor(fs.aPSH.shell._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aPSH.tube._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aPSH.shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(fs.aPSH.tube.enthalpy_flow_dx, 1e-7)
-    for t, c in fs.aPSH.shell.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aPSH.shell.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
-    for t, c in fs.aPSH.tube.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aPSH.tube.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
 
     iscale.set_scaling_factor(fs.aRH1.shell._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aRH1.tube._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aRH1.shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(fs.aRH1.tube.enthalpy_flow_dx, 1e-7)
-    for t, c in fs.aRH1.shell.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aRH1.shell.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
-    for t, c in fs.aRH1.tube.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aRH1.tube.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
 
     iscale.set_scaling_factor(fs.aRH2.shell._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aRH2.tube._enthalpy_flow, 1e-8)
     iscale.set_scaling_factor(fs.aRH2.shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(fs.aRH2.tube.enthalpy_flow_dx, 1e-7)
-    for t, c in fs.aRH2.shell.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aRH2.shell.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
-    for t, c in fs.aRH2.tube.enthalpy_flow_dx_disc_eq.items():
+    for c in fs.aRH2.tube.enthalpy_flow_dx_disc_eq.values():
         iscale.constraint_scaling_transform(c, 1e-7)
 
     # Calculate calculated scaling factors
@@ -1219,7 +1197,6 @@ def main_dynamic():
 
     solver = get_solver()
 
-    dof = degrees_of_freedom(m_dyn.fs_main)
     # solving dynamic model at steady-state
     print("solving dynamic model at steady-state...")
     solver.solve(m_dyn.fs_main, tee=True)
@@ -1235,14 +1212,14 @@ def get_model(dynamic=True, init=True):
     m.init_dyn = False
     if m.dynamic:
         m.fs_main = FlowsheetBlock(
-            default={"dynamic": True, "time_set": [0, 60], "time_units": pyo.units.s}
+            dynamic=True, time_set=[0, 60], time_units=pyo.units.s
         )
     else:
-        m.fs_main = FlowsheetBlock(default={"dynamic": False})
+        m.fs_main = FlowsheetBlock(dynamic=False)
     # Add property packages to flowsheet library
     m.fs_main.prop_water = iapws95.Iapws95ParameterBlock()
     m.fs_main.prop_gas = FlueGasParameterBlock()
-    m.fs_main.fs_blr = FlowsheetBlock(default={"time_units": pyo.units.s})
+    m.fs_main.fs_blr = FlowsheetBlock(time_units=pyo.units.s)
     m = add_unit_models(m)
     if m.dynamic:
         m.discretizer = pyo.TransformationFactory("dae.finite_difference")
@@ -1278,7 +1255,7 @@ def run_dynamic(m):
 def print_dynamic_results(m):
     fs = m.fs_main.fs_blr
 
-    # ploting results
+    # plotting results
     time = []
     coal_flow = []
     steam_flow = []

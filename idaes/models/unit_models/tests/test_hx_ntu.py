@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for Plate Heat Exchanger unit model.
@@ -16,7 +16,6 @@ Author: Akula Paul, Andrew Lee
 """
 
 import pytest
-from io import StringIO
 
 from pyomo.environ import (
     check_optimal_termination,
@@ -31,7 +30,10 @@ from pyomo.environ import (
 from pyomo.util.check_units import assert_units_consistent, assert_units_equivalent
 
 from idaes.core import FlowsheetBlock
-from idaes.models.unit_models.heat_exchanger_ntu import HeatExchangerNTU as HXNTU
+from idaes.models.unit_models.heat_exchanger_ntu import (
+    HeatExchangerNTU as HXNTU,
+    HXNTUInitializer,
+)
 
 from idaes.models.properties.modular_properties.base.generic_property import (
     GenericParameterBlock,
@@ -41,8 +43,12 @@ from idaes.models_extra.column_models.properties.MEA_solvent import (
 )
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.core.solvers import get_solver
-from idaes.core.util.testing import initialization_tester
-from idaes.core.util.exceptions import InitializationError
+from idaes.core.util.testing import initialization_tester, PhysicalParameterTestBlock
+from idaes.core.util.exceptions import ConfigurationError, InitializationError
+from idaes.core.initialization import (
+    BlockTriangularizationInitializer,
+    InitializationStatus,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -51,43 +57,162 @@ solver = get_solver()
 
 
 # -----------------------------------------------------------------------------
+@pytest.mark.unit
+def test_bad_option():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    with pytest.raises(KeyError):
+        m.fs.unit = HXNTU(**{"I'm a bad option": "hot"})
+
+
+@pytest.mark.unit
+def test_bad_option2():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    with pytest.raises(
+        ConfigurationError, match="cold_side_name cannot be 'hot_side'."
+    ):
+        m.fs.unit = HXNTU(cold_side_name="hot_side")
+
+
+@pytest.mark.unit
+def test_bad_option3():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    with pytest.raises(
+        ConfigurationError, match="hot_side_name cannot be 'cold_side'."
+    ):
+        m.fs.unit = HXNTU(hot_side_name="cold_side")
+
+
+@pytest.mark.unit
+def test_bad_option4():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    with pytest.raises(
+        ConfigurationError, match="cold_side_name cannot be 'cold_side'."
+    ):
+        m.fs.unit = HXNTU(cold_side_name="cold_side")
+
+
+@pytest.mark.unit
+def test_bad_option5():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    with pytest.raises(ConfigurationError, match="hot_side_name cannot be 'hot_side'."):
+        m.fs.unit = HXNTU(hot_side_name="hot_side")
+
+
+@pytest.mark.unit
+def test_hot_and_cold_names_same():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    with pytest.raises(
+        NameError,
+        match="HeatExchanger hot and cold side cannot have the same name 'shell'.",
+    ):
+        m.fs.unit = HXNTU(hot_side_name="shell", cold_side_name="shell")
+
+
+@pytest.mark.unit
+def test_hot_side_name_clash():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    m.fs.properties = PhysicalParameterTestBlock()
+
+    with pytest.raises(
+        ValueError,
+        match="fs.unit could not assign hot side alias "
+        "build as an attribute of that name already "
+        "exists.",
+    ):
+        m.fs.unit = HXNTU(
+            hot_side={"property_package": m.fs.properties},
+            cold_side={"property_package": m.fs.properties},
+            hot_side_name="build",
+        )
+
+
+@pytest.mark.unit
+def test_cold_side_name_clash():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    m.fs.properties = PhysicalParameterTestBlock()
+
+    with pytest.raises(
+        ValueError,
+        match="fs.unit could not assign cold side alias "
+        "build as an attribute of that name already "
+        "exists.",
+    ):
+        m.fs.unit = HXNTU(
+            hot_side={"property_package": m.fs.properties},
+            cold_side={"property_package": m.fs.properties},
+            cold_side_name="build",
+        )
+
+
+@pytest.mark.unit
+def test_user_names():
+    m = ConcreteModel()
+    m.fs = FlowsheetBlock(dynamic=False)
+    m.fs.properties = PhysicalParameterTestBlock()
+
+    m.fs.unit = HXNTU(
+        hot_side_name="shell",
+        cold_side_name="tube",
+        shell={"property_package": m.fs.properties},
+        tube={"property_package": m.fs.properties},
+    )
+
+    assert m.fs.unit.config.hot_side.property_package is m.fs.properties
+    assert m.fs.unit.config.cold_side.property_package is m.fs.properties
+
+    assert m.fs.unit.shell is m.fs.unit.hot_side
+    assert m.fs.unit.tube is m.fs.unit.cold_side
+
+    assert m.fs.unit.shell_inlet is m.fs.unit.hot_side_inlet
+    assert m.fs.unit.tube_inlet is m.fs.unit.cold_side_inlet
+    assert m.fs.unit.shell_outlet is m.fs.unit.hot_side_outlet
+    assert m.fs.unit.tube_outlet is m.fs.unit.cold_side_outlet
+
+
+# -----------------------------------------------------------------------------
 class TestHXNTU(object):
     @pytest.fixture(scope="class")
     def model(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.hotside_properties = GenericParameterBlock(default=aqueous_mea)
-        m.fs.coldside_properties = GenericParameterBlock(default=aqueous_mea)
+        m.fs.hotside_properties = GenericParameterBlock(**aqueous_mea)
+        m.fs.coldside_properties = GenericParameterBlock(**aqueous_mea)
 
         m.fs.unit = HXNTU(
-            default={
-                "hot_side": {
-                    "property_package": m.fs.hotside_properties,
-                    "has_pressure_change": True,
-                },
-                "cold_side": {
-                    "property_package": m.fs.coldside_properties,
-                    "has_pressure_change": True,
-                },
-            }
+            hot_side={
+                "property_package": m.fs.hotside_properties,
+                "has_pressure_change": True,
+            },
+            cold_side={
+                "property_package": m.fs.coldside_properties,
+                "has_pressure_change": True,
+            },
         )
 
         # Hot fluid
-        m.fs.unit.hot_inlet.flow_mol[0].fix(60.54879)
-        m.fs.unit.hot_inlet.temperature[0].fix(392.23)
-        m.fs.unit.hot_inlet.pressure[0].fix(202650)
-        m.fs.unit.hot_inlet.mole_frac_comp[0, "CO2"].fix(0.0158)
-        m.fs.unit.hot_inlet.mole_frac_comp[0, "H2O"].fix(0.8747)
-        m.fs.unit.hot_inlet.mole_frac_comp[0, "MEA"].fix(0.1095)
+        m.fs.unit.hot_side_inlet.flow_mol[0].fix(60.54879)
+        m.fs.unit.hot_side_inlet.temperature[0].fix(392.23)
+        m.fs.unit.hot_side_inlet.pressure[0].fix(202650)
+        m.fs.unit.hot_side_inlet.mole_frac_comp[0, "CO2"].fix(0.0158)
+        m.fs.unit.hot_side_inlet.mole_frac_comp[0, "H2O"].fix(0.8747)
+        m.fs.unit.hot_side_inlet.mole_frac_comp[0, "MEA"].fix(0.1095)
 
         # Cold fluid
-        m.fs.unit.cold_inlet.flow_mol[0].fix(63.01910)
-        m.fs.unit.cold_inlet.temperature[0].fix(326.36)
-        m.fs.unit.cold_inlet.pressure[0].fix(202650)
-        m.fs.unit.cold_inlet.mole_frac_comp[0, "CO2"].fix(0.0414)
-        m.fs.unit.cold_inlet.mole_frac_comp[0, "H2O"].fix(0.8509)
-        m.fs.unit.cold_inlet.mole_frac_comp[0, "MEA"].fix(0.1077)
+        m.fs.unit.cold_side_inlet.flow_mol[0].fix(63.01910)
+        m.fs.unit.cold_side_inlet.temperature[0].fix(326.36)
+        m.fs.unit.cold_side_inlet.pressure[0].fix(202650)
+        m.fs.unit.cold_side_inlet.mole_frac_comp[0, "CO2"].fix(0.0414)
+        m.fs.unit.cold_side_inlet.mole_frac_comp[0, "H2O"].fix(0.8509)
+        m.fs.unit.cold_side_inlet.mole_frac_comp[0, "MEA"].fix(0.1077)
 
         # Unit design variables
         m.fs.unit.area.fix(100)
@@ -103,33 +228,33 @@ class TestHXNTU(object):
     @pytest.mark.unit
     def test_build(self, model):
 
-        assert hasattr(model.fs.unit, "hot_inlet")
-        assert len(model.fs.unit.hot_inlet.vars) == 4
-        assert hasattr(model.fs.unit.hot_inlet, "flow_mol")
-        assert hasattr(model.fs.unit.hot_inlet, "mole_frac_comp")
-        assert hasattr(model.fs.unit.hot_inlet, "temperature")
-        assert hasattr(model.fs.unit.hot_inlet, "pressure")
+        assert hasattr(model.fs.unit, "hot_side_inlet")
+        assert len(model.fs.unit.hot_side_inlet.vars) == 4
+        assert hasattr(model.fs.unit.hot_side_inlet, "flow_mol")
+        assert hasattr(model.fs.unit.hot_side_inlet, "mole_frac_comp")
+        assert hasattr(model.fs.unit.hot_side_inlet, "temperature")
+        assert hasattr(model.fs.unit.hot_side_inlet, "pressure")
 
-        assert hasattr(model.fs.unit, "hot_outlet")
-        assert len(model.fs.unit.hot_outlet.vars) == 4
-        assert hasattr(model.fs.unit.hot_outlet, "flow_mol")
-        assert hasattr(model.fs.unit.hot_outlet, "mole_frac_comp")
-        assert hasattr(model.fs.unit.hot_outlet, "temperature")
-        assert hasattr(model.fs.unit.hot_outlet, "pressure")
+        assert hasattr(model.fs.unit, "hot_side_outlet")
+        assert len(model.fs.unit.hot_side_outlet.vars) == 4
+        assert hasattr(model.fs.unit.hot_side_outlet, "flow_mol")
+        assert hasattr(model.fs.unit.hot_side_outlet, "mole_frac_comp")
+        assert hasattr(model.fs.unit.hot_side_outlet, "temperature")
+        assert hasattr(model.fs.unit.hot_side_outlet, "pressure")
 
-        assert hasattr(model.fs.unit, "cold_inlet")
-        assert len(model.fs.unit.cold_inlet.vars) == 4
-        assert hasattr(model.fs.unit.cold_inlet, "flow_mol")
-        assert hasattr(model.fs.unit.cold_inlet, "mole_frac_comp")
-        assert hasattr(model.fs.unit.cold_inlet, "temperature")
-        assert hasattr(model.fs.unit.cold_inlet, "pressure")
+        assert hasattr(model.fs.unit, "cold_side_inlet")
+        assert len(model.fs.unit.cold_side_inlet.vars) == 4
+        assert hasattr(model.fs.unit.cold_side_inlet, "flow_mol")
+        assert hasattr(model.fs.unit.cold_side_inlet, "mole_frac_comp")
+        assert hasattr(model.fs.unit.cold_side_inlet, "temperature")
+        assert hasattr(model.fs.unit.cold_side_inlet, "pressure")
 
-        assert hasattr(model.fs.unit, "cold_outlet")
-        assert len(model.fs.unit.cold_outlet.vars) == 4
-        assert hasattr(model.fs.unit.cold_outlet, "flow_mol")
-        assert hasattr(model.fs.unit.cold_outlet, "mole_frac_comp")
-        assert hasattr(model.fs.unit.cold_outlet, "temperature")
-        assert hasattr(model.fs.unit.cold_outlet, "pressure")
+        assert hasattr(model.fs.unit, "cold_side_outlet")
+        assert len(model.fs.unit.cold_side_outlet.vars) == 4
+        assert hasattr(model.fs.unit.cold_side_outlet, "flow_mol")
+        assert hasattr(model.fs.unit.cold_side_outlet, "mole_frac_comp")
+        assert hasattr(model.fs.unit.cold_side_outlet, "temperature")
+        assert hasattr(model.fs.unit.cold_side_outlet, "pressure")
 
         assert hasattr(model.fs.unit, "heat_duty")
         assert hasattr(model.fs.unit.cold_side, "heat")
@@ -152,6 +277,8 @@ class TestHXNTU(object):
 
         assert isinstance(model.fs.unit.energy_balance_constraint, Constraint)
         assert isinstance(model.fs.unit.heat_duty_constraint, Constraint)
+
+        assert model.fs.unit.default_initializer is HXNTUInitializer
 
     @pytest.mark.component
     def test_units(self, model):
@@ -252,37 +379,37 @@ class TestHXNTU(object):
     @pytest.mark.component
     def test_solution(self, model):
         assert pytest.approx(200650, rel=1e-5) == value(
-            model.fs.unit.hot_outlet.pressure[0]
+            model.fs.unit.hot_side_outlet.pressure[0]
         )
         assert pytest.approx(200650, rel=1e-5) == value(
-            model.fs.unit.cold_outlet.pressure[0]
+            model.fs.unit.cold_side_outlet.pressure[0]
         )
 
         assert pytest.approx(343.995, rel=1e-5) == value(
-            model.fs.unit.hot_outlet.temperature[0]
+            model.fs.unit.hot_side_outlet.temperature[0]
         )
         assert pytest.approx(374.333, rel=1e-5) == value(
-            model.fs.unit.cold_outlet.temperature[0]
+            model.fs.unit.cold_side_outlet.temperature[0]
         )
 
         assert pytest.approx(0.015800, rel=1e-5) == value(
-            model.fs.unit.hot_outlet.mole_frac_comp[0, "CO2"]
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "CO2"]
         )
         assert pytest.approx(0.10950, rel=1e-5) == value(
-            model.fs.unit.hot_outlet.mole_frac_comp[0, "MEA"]
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "MEA"]
         )
         assert pytest.approx(0.87470, rel=1e-5) == value(
-            model.fs.unit.hot_outlet.mole_frac_comp[0, "H2O"]
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "H2O"]
         )
 
         assert pytest.approx(0.041400, rel=1e-5) == value(
-            model.fs.unit.cold_outlet.mole_frac_comp[0, "CO2"]
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "CO2"]
         )
         assert pytest.approx(0.10770, rel=1e-5) == value(
-            model.fs.unit.cold_outlet.mole_frac_comp[0, "MEA"]
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "MEA"]
         )
         assert pytest.approx(0.85090, rel=1e-5) == value(
-            model.fs.unit.cold_outlet.mole_frac_comp[0, "H2O"]
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "H2O"]
         )
 
         Cmin = value(
@@ -316,8 +443,8 @@ class TestHXNTU(object):
         assert (
             abs(
                 value(
-                    model.fs.unit.hot_inlet.flow_mol[0]
-                    - model.fs.unit.hot_outlet.flow_mol[0]
+                    model.fs.unit.hot_side_inlet.flow_mol[0]
+                    - model.fs.unit.hot_side_outlet.flow_mol[0]
                 )
             )
             <= 1e-6
@@ -327,10 +454,10 @@ class TestHXNTU(object):
             assert (
                 abs(
                     value(
-                        model.fs.unit.hot_inlet.flow_mol[0]
-                        * model.fs.unit.hot_inlet.mole_frac_comp[0, j]
-                        - model.fs.unit.hot_outlet.flow_mol[0]
-                        * model.fs.unit.hot_outlet.mole_frac_comp[0, j]
+                        model.fs.unit.hot_side_inlet.flow_mol[0]
+                        * model.fs.unit.hot_side_inlet.mole_frac_comp[0, j]
+                        - model.fs.unit.hot_side_outlet.flow_mol[0]
+                        * model.fs.unit.hot_side_outlet.mole_frac_comp[0, j]
                     )
                 )
                 <= 1e-6
@@ -339,8 +466,8 @@ class TestHXNTU(object):
         assert (
             abs(
                 value(
-                    model.fs.unit.cold_inlet.flow_mol[0]
-                    - model.fs.unit.cold_outlet.flow_mol[0]
+                    model.fs.unit.cold_side_inlet.flow_mol[0]
+                    - model.fs.unit.cold_side_outlet.flow_mol[0]
                 )
             )
             <= 1e-6
@@ -350,10 +477,10 @@ class TestHXNTU(object):
             assert (
                 abs(
                     value(
-                        model.fs.unit.cold_inlet.flow_mol[0]
-                        * model.fs.unit.cold_inlet.mole_frac_comp[0, j]
-                        - model.fs.unit.cold_outlet.flow_mol[0]
-                        * model.fs.unit.cold_outlet.mole_frac_comp[0, j]
+                        model.fs.unit.cold_side_inlet.flow_mol[0]
+                        * model.fs.unit.cold_side_inlet.mole_frac_comp[0, j]
+                        - model.fs.unit.cold_side_outlet.flow_mol[0]
+                        * model.fs.unit.cold_side_outlet.mole_frac_comp[0, j]
                     )
                 )
                 <= 1e-6
@@ -380,7 +507,214 @@ class TestHXNTU(object):
 
     @pytest.mark.component
     def test_initialization_error(self, model):
-        model.fs.unit.hot_outlet.pressure[0].fix(1)
+        model.fs.unit.hot_side_outlet.pressure[0].fix(1)
 
         with pytest.raises(InitializationError):
             model.fs.unit.initialize()
+
+        # Revert DoF change to avoid contaminating subsequent tests
+        model.fs.unit.hot_side_outlet.pressure[0].unfix()
+
+
+class TestInitializers(object):
+    @pytest.fixture(scope="class")
+    def model(self):
+        m = ConcreteModel()
+        m.fs = FlowsheetBlock(dynamic=False)
+
+        m.fs.hotside_properties = GenericParameterBlock(**aqueous_mea)
+        m.fs.coldside_properties = GenericParameterBlock(**aqueous_mea)
+
+        m.fs.unit = HXNTU(
+            hot_side={
+                "property_package": m.fs.hotside_properties,
+                "has_pressure_change": True,
+            },
+            cold_side={
+                "property_package": m.fs.coldside_properties,
+                "has_pressure_change": True,
+            },
+        )
+
+        # Hot fluid
+        m.fs.unit.hot_side_inlet.flow_mol[0].set_value(60.54879)
+        m.fs.unit.hot_side_inlet.temperature[0].set_value(392.23)
+        m.fs.unit.hot_side_inlet.pressure[0].set_value(202650)
+        m.fs.unit.hot_side_inlet.mole_frac_comp[0, "CO2"].set_value(0.0158)
+        m.fs.unit.hot_side_inlet.mole_frac_comp[0, "H2O"].set_value(0.8747)
+        m.fs.unit.hot_side_inlet.mole_frac_comp[0, "MEA"].set_value(0.1095)
+
+        # Cold fluid
+        m.fs.unit.cold_side_inlet.flow_mol[0].set_value(63.01910)
+        m.fs.unit.cold_side_inlet.temperature[0].set_value(326.36)
+        m.fs.unit.cold_side_inlet.pressure[0].set_value(202650)
+        m.fs.unit.cold_side_inlet.mole_frac_comp[0, "CO2"].set_value(0.0414)
+        m.fs.unit.cold_side_inlet.mole_frac_comp[0, "H2O"].set_value(0.8509)
+        m.fs.unit.cold_side_inlet.mole_frac_comp[0, "MEA"].set_value(0.1077)
+
+        # Unit design variables
+        m.fs.unit.area.fix(100)
+        m.fs.unit.heat_transfer_coefficient.fix(200)
+        m.fs.unit.effectiveness.fix(0.7)
+
+        m.fs.unit.hot_side.deltaP.fix(-2000)
+        m.fs.unit.cold_side.deltaP.fix(-2000)
+
+        return m
+
+    @pytest.mark.component
+    def test_hx_ntu_initializer(self, model):
+        # Need to estimate outlet state values based on heat duty
+        initializer = HXNTUInitializer(always_estimate_states=True)
+        initializer.initialize(model.fs.unit)
+
+        assert initializer.summary[model.fs.unit]["status"] == InitializationStatus.Ok
+
+        assert pytest.approx(200650, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.pressure[0]
+        )
+        assert pytest.approx(200650, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.pressure[0]
+        )
+
+        assert pytest.approx(343.995, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.temperature[0]
+        )
+        assert pytest.approx(374.333, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.temperature[0]
+        )
+
+        assert pytest.approx(0.015800, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "CO2"]
+        )
+        assert pytest.approx(0.10950, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "MEA"]
+        )
+        assert pytest.approx(0.87470, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "H2O"]
+        )
+
+        assert pytest.approx(0.041400, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "CO2"]
+        )
+        assert pytest.approx(0.10770, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "MEA"]
+        )
+        assert pytest.approx(0.85090, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "H2O"]
+        )
+
+        Cmin = value(
+            model.fs.unit.hot_side.properties_in[0].flow_mol
+            * model.fs.unit.hot_side.properties_in[0].cp_mol
+        )
+        assert value(model.fs.unit.Cmin[0]) == pytest.approx(Cmin, rel=1e-5)
+        assert value(model.fs.unit.Cmax[0]) == pytest.approx(
+            value(
+                model.fs.unit.cold_side.properties_in[0].flow_mol
+                * model.fs.unit.cold_side.properties_in[0].cp_mol
+            ),
+            rel=1e-5,
+        )
+        assert value(model.fs.unit.NTU[0]) == pytest.approx(
+            value(
+                model.fs.unit.area * model.fs.unit.heat_transfer_coefficient[0] / Cmin
+            ),
+            rel=1e-5,
+        )
+
+        assert pytest.approx(0.7 * Cmin * (392.23 - 326.36), rel=1e-5) == value(
+            model.fs.unit.heat_duty[0]
+        )
+
+        assert not model.fs.unit.hot_side_inlet.flow_mol[0].fixed
+        assert not model.fs.unit.hot_side_inlet.temperature[0].fixed
+        assert not model.fs.unit.hot_side_inlet.pressure[0].fixed
+        assert not model.fs.unit.hot_side_inlet.mole_frac_comp[0, "CO2"].fixed
+        assert not model.fs.unit.hot_side_inlet.mole_frac_comp[0, "H2O"].fixed
+        assert not model.fs.unit.hot_side_inlet.mole_frac_comp[0, "MEA"].fixed
+
+        assert not model.fs.unit.cold_side_inlet.flow_mol[0].fixed
+        assert not model.fs.unit.cold_side_inlet.temperature[0].fixed
+        assert not model.fs.unit.cold_side_inlet.pressure[0].fixed
+        assert not model.fs.unit.cold_side_inlet.mole_frac_comp[0, "CO2"].fixed
+        assert not model.fs.unit.cold_side_inlet.mole_frac_comp[0, "H2O"].fixed
+        assert not model.fs.unit.cold_side_inlet.mole_frac_comp[0, "MEA"].fixed
+
+    @pytest.mark.component
+    def test_block_triangularization_initializer(self, model):
+        initializer = BlockTriangularizationInitializer(constraint_tolerance=2e-5)
+        initializer.initialize(model.fs.unit)
+
+        assert initializer.summary[model.fs.unit]["status"] == InitializationStatus.Ok
+
+        assert pytest.approx(200650, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.pressure[0]
+        )
+        assert pytest.approx(200650, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.pressure[0]
+        )
+
+        assert pytest.approx(343.995, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.temperature[0]
+        )
+        assert pytest.approx(374.333, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.temperature[0]
+        )
+
+        assert pytest.approx(0.015800, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "CO2"]
+        )
+        assert pytest.approx(0.10950, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "MEA"]
+        )
+        assert pytest.approx(0.87470, rel=1e-5) == value(
+            model.fs.unit.hot_side_outlet.mole_frac_comp[0, "H2O"]
+        )
+
+        assert pytest.approx(0.041400, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "CO2"]
+        )
+        assert pytest.approx(0.10770, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "MEA"]
+        )
+        assert pytest.approx(0.85090, rel=1e-5) == value(
+            model.fs.unit.cold_side_outlet.mole_frac_comp[0, "H2O"]
+        )
+
+        Cmin = value(
+            model.fs.unit.hot_side.properties_in[0].flow_mol
+            * model.fs.unit.hot_side.properties_in[0].cp_mol
+        )
+        assert value(model.fs.unit.Cmin[0]) == pytest.approx(Cmin, rel=1e-5)
+        assert value(model.fs.unit.Cmax[0]) == pytest.approx(
+            value(
+                model.fs.unit.cold_side.properties_in[0].flow_mol
+                * model.fs.unit.cold_side.properties_in[0].cp_mol
+            ),
+            rel=1e-5,
+        )
+        assert value(model.fs.unit.NTU[0]) == pytest.approx(
+            value(
+                model.fs.unit.area * model.fs.unit.heat_transfer_coefficient[0] / Cmin
+            ),
+            rel=1e-5,
+        )
+
+        assert pytest.approx(0.7 * Cmin * (392.23 - 326.36), rel=1e-5) == value(
+            model.fs.unit.heat_duty[0]
+        )
+
+        assert not model.fs.unit.hot_side_inlet.flow_mol[0].fixed
+        assert not model.fs.unit.hot_side_inlet.temperature[0].fixed
+        assert not model.fs.unit.hot_side_inlet.pressure[0].fixed
+        assert not model.fs.unit.hot_side_inlet.mole_frac_comp[0, "CO2"].fixed
+        assert not model.fs.unit.hot_side_inlet.mole_frac_comp[0, "H2O"].fixed
+        assert not model.fs.unit.hot_side_inlet.mole_frac_comp[0, "MEA"].fixed
+
+        assert not model.fs.unit.cold_side_inlet.flow_mol[0].fixed
+        assert not model.fs.unit.cold_side_inlet.temperature[0].fixed
+        assert not model.fs.unit.cold_side_inlet.pressure[0].fixed
+        assert not model.fs.unit.cold_side_inlet.mole_frac_comp[0, "CO2"].fixed
+        assert not model.fs.unit.cold_side_inlet.mole_frac_comp[0, "H2O"].fixed
+        assert not model.fs.unit.cold_side_inlet.mole_frac_comp[0, "MEA"].fixed

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for generic property package core code
@@ -163,17 +163,15 @@ class TestInherentReactions(object):
     @pytest.fixture()
     def frame(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = GenericParameterBlock(default=configuration)
+        m.fs.params = GenericParameterBlock(**configuration)
 
         return m
 
     @pytest.mark.unit
     def test_build(self, frame):
-        frame.fs.props = frame.fs.params.build_state_block(
-            [1], default={"defined_state": False}
-        )
+        frame.fs.props = frame.fs.params.build_state_block([1], defined_state=False)
 
         assert isinstance(frame.fs.props[1].inherent_equilibrium_constraint, Constraint)
         assert len(frame.fs.props[1].inherent_equilibrium_constraint) == 1
@@ -184,10 +182,8 @@ class TestInherentReactions(object):
     @pytest.mark.component
     def test_heater_w_inherent_rxns_comp_phase(self, frame):
         frame.fs.H101 = Heater(
-            default={
-                "property_package": frame.fs.params,
-                "material_balance_type": MaterialBalanceType.componentPhase,
-            }
+            property_package=frame.fs.params,
+            material_balance_type=MaterialBalanceType.componentPhase,
         )
 
         frame.fs.H101.inlet.flow_mol.fix(100)
@@ -207,7 +203,9 @@ class TestInherentReactions(object):
 
         assert check_optimal_termination(results)
 
-        assert value(frame.fs.H101.control_volume.properties_out[0].k_eq["e1"]) == 2
+        assert value(
+            frame.fs.H101.control_volume.properties_out[0].k_eq["e1"]
+        ) == pytest.approx(2, rel=1e-8)
 
         assert value(
             frame.fs.H101.control_volume.properties_out[0].k_eq["e1"]
@@ -243,10 +241,8 @@ class TestInherentReactions(object):
     @pytest.mark.component
     def test_heater_w_inherent_rxns_comp_total(self, frame):
         frame.fs.H101 = Heater(
-            default={
-                "property_package": frame.fs.params,
-                "material_balance_type": MaterialBalanceType.componentTotal,
-            }
+            property_package=frame.fs.params,
+            material_balance_type=MaterialBalanceType.componentTotal,
         )
 
         frame.fs.H101.inlet.flow_mol.fix(100)
@@ -266,7 +262,9 @@ class TestInherentReactions(object):
 
         assert check_optimal_termination(results)
 
-        assert value(frame.fs.H101.control_volume.properties_out[0].k_eq["e1"]) == 2
+        assert value(
+            frame.fs.H101.control_volume.properties_out[0].k_eq["e1"]
+        ) == pytest.approx(2, rel=1e-8)
 
         assert value(
             frame.fs.H101.control_volume.properties_out[0].k_eq["e1"]
@@ -302,12 +300,10 @@ class TestInherentReactions(object):
     @pytest.mark.component
     def test_CV1D_w_inherent_rxns_comp_phase(self, frame):
         frame.fs.cv = ControlVolume1DBlock(
-            default={
-                "property_package": frame.fs.params,
-                "transformation_method": "dae.finite_difference",
-                "transformation_scheme": "BACKWARD",
-                "finite_elements": 2,
-            }
+            property_package=frame.fs.params,
+            transformation_method="dae.finite_difference",
+            transformation_scheme="BACKWARD",
+            finite_elements=2,
         )
 
         frame.fs.cv.add_geometry()
@@ -378,12 +374,10 @@ class TestInherentReactions(object):
     @pytest.mark.component
     def test_CV1D_w_inherent_rxns_comp_total(self, frame):
         frame.fs.cv = ControlVolume1DBlock(
-            default={
-                "property_package": frame.fs.params,
-                "transformation_method": "dae.finite_difference",
-                "transformation_scheme": "BACKWARD",
-                "finite_elements": 2,
-            }
+            property_package=frame.fs.params,
+            transformation_method="dae.finite_difference",
+            transformation_scheme="BACKWARD",
+            finite_elements=2,
         )
 
         frame.fs.cv.add_geometry()

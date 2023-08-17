@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 This module contains miscalaneous utility functions for use in IDAES models.
@@ -23,8 +23,6 @@ from pyomo.core.base.units_container import UnitsError
 
 from idaes.core.util.misc import (
     add_object_reference,
-    copy_port_values,
-    TagReference,
     set_param_from_config,
 )
 import idaes.logger as idaeslog
@@ -50,106 +48,6 @@ def test_add_object_reference_fail():
 
     with pytest.raises(AttributeError):
         add_object_reference(m, "test_ref", m.s)
-
-
-# Author: John Eslick
-@pytest.mark.unit
-def test_port_copy():
-    """DEPRECATED function test"""
-    m = ConcreteModel()
-    m.b1 = Block()
-    m.b2 = Block()
-    m.b1.x = Var(initialize=3)
-    m.b1.y = Var([0, 1], initialize={0: 4, 1: 5})
-    m.b1.z = Var(
-        [0, 1],
-        ["A", "B"],
-        initialize={(0, "A"): 6, (0, "B"): 7, (1, "A"): 8, (1, "B"): 9},
-    )
-    m.b2.x = Var(initialize=1)
-    m.b2.y = Var([0, 1], initialize=1)
-    m.b2.z = Var([0, 1], ["A", "B"], initialize=1)
-    m.b1.port = Port()
-    m.b2.port = Port()
-    m.b1.port.add(m.b1.x, "x")
-    m.b1.port.add(m.b1.y, "y")
-    m.b1.port.add(m.b1.z, "z")
-    m.b2.port.add(m.b2.x, "x")
-    m.b2.port.add(m.b2.y, "y")
-    m.b2.port.add(m.b2.z, "z")
-
-    def assert_copied_right():
-        assert m.b2.x.value == 3
-        assert m.b2.y[0].value == 4
-        assert m.b2.y[1].value == 5
-        assert m.b2.z[0, "A"].value == 6
-        assert m.b2.z[0, "B"].value == 7
-        assert m.b2.z[1, "A"].value == 8
-        assert m.b2.z[1, "B"].value == 9
-
-    def reset():
-        m.b2.x = 0
-        m.b2.y[0] = 0
-        m.b2.y[1] = 0
-        m.b2.z[0, "A"] = 0
-        m.b2.z[0, "B"] = 0
-        m.b2.z[1, "A"] = 0
-        m.b2.z[1, "B"] = 0
-
-    m.arc = Arc(source=m.b1.port, dest=m.b2.port)
-
-    copy_port_values(m.b2.port, m.b1.port)
-    assert_copied_right()
-    reset()
-
-    copy_port_values(source=m.b1.port, destination=m.b2.port)
-    assert_copied_right()
-    reset()
-
-    copy_port_values(m.arc)
-    assert_copied_right()
-    reset()
-
-    copy_port_values(arc=m.arc)
-    assert_copied_right()
-    reset()
-
-    with pytest.raises(AttributeError):
-        copy_port_values(arc=m.b1.port)
-
-    with pytest.raises(RuntimeError):
-        copy_port_values(source=m.b1.port, destination=m.b2.port, arc=m.arc)
-
-    with pytest.raises(RuntimeError):
-        copy_port_values(source=m.b1.port, arc=m.arc)
-
-    with pytest.raises(AttributeError):
-        copy_port_values(source=m.b1.port, destination=m.arc)
-
-
-# Author: John Eslick
-@pytest.mark.unit
-def test_tag_reference():
-    """DEPRECATED function test"""
-    m = ConcreteModel()
-    m.z = Var(
-        [0, 1],
-        ["A", "B"],
-        initialize={(0, "A"): 6, (0, "B"): 7, (1, "A"): 8, (1, "B"): 9},
-    )
-    test_tag = {}
-    test_tag["MyTag34&@!e.5"] = TagReference(m.z[:, "A"], description="z tag")
-    assert len(test_tag["MyTag34&@!e.5"]) == 2
-    assert test_tag["MyTag34&@!e.5"][0].value == 6
-    assert test_tag["MyTag34&@!e.5"][1].value == 8
-    assert test_tag["MyTag34&@!e.5"].description == "z tag"
-    m.b = Block([0, 1])
-    m.b[0].y = Var(initialize=1)
-    m.b[1].y = Var(initialize=2)
-    test_tag = TagReference(m.b[:].y, description="y tag")
-    assert test_tag[0].value == 1
-    assert test_tag[1].value == 2
-    assert test_tag.description == "y tag"
 
 
 @pytest.mark.unit
@@ -391,7 +289,7 @@ class TestSetParamFromConfig:
         m.b.test_param = Var(initialize=1, units=units.s)
 
         with pytest.raises(
-            UnitsError, match="Cannot convert m to s. Units are not " "compatible."
+            UnitsError, match="Cannot convert m to s. Units are not compatible."
         ):
             set_param_from_config(m.b, "test_param")
 
@@ -407,7 +305,7 @@ class TestSetParamFromConfig:
 
         with pytest.raises(
             UnitsError,
-            match="Cannot convert dimensionless to s. Units " "are not compatible.",
+            match="Cannot convert dimensionless to s. Units are not compatible.",
         ):
             set_param_from_config(m.b, "test_param")
 
@@ -422,7 +320,8 @@ class TestSetParamFromConfig:
         m.b.test_param = Var(initialize=1, units=units.s)
 
         with pytest.raises(
-            UnitsError, match="Cannot convert None to s. Units " "are not compatible."
+            UnitsError,
+            match="Cannot convert dimensionless to s. Units are not compatible.",
         ):
             set_param_from_config(m.b, "test_param")
 
@@ -437,22 +336,8 @@ class TestSetParamFromConfig:
         m.b.test_param = Var(initialize=1, units=units.dimensionless)
 
         with pytest.raises(
-            UnitsError, match="Cannot convert s to None. Units " "are not compatible."
-        ):
-            set_param_from_config(m.b, "test_param")
-
-    def test_inconsistent_units_none_2(self, caplog):
-        caplog.set_level(idaeslog.DEBUG, logger=("idaes.core.util.misc"))
-
-        m = ConcreteModel()
-        m.b = Block()
-        m.b.config = ConfigBlock(implicit=True)
-        m.b.config.parameter_data = {"test_param": (42, units.s)}
-
-        m.b.test_param = Var(initialize=1, units=None)
-
-        with pytest.raises(
-            UnitsError, match="Cannot convert s to None. Units " "are not compatible."
+            UnitsError,
+            match="Cannot convert s to dimensionless. Units are not compatible.",
         ):
             set_param_from_config(m.b, "test_param")
 

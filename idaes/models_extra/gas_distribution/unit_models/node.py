@@ -1,15 +1,23 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
+"""
+A unit model for a "node" that connects several pipelines,
+possibly with its own supply and demand streams.
+"""
+# TODO: Missing docstrings
+# pylint: disable=missing-class-docstring
+# pylint: disable=missing-function-docstring
+
 from pyomo.common.config import ConfigValue
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.var import Var
@@ -25,11 +33,6 @@ from idaes.core.util.exceptions import ConfigurationError
 from idaes.core.util.config import (
     is_physical_parameter_block,
 )
-
-"""
-A unit model for a "node" that connects several pipelines,
-possibly with its own supply and demand streams.
-"""
 
 
 @declare_process_block_class("PipelineNode")
@@ -86,7 +89,7 @@ class PipelineNodeData(UnitModelBlockData):
         # model requires.
         #
         property_dict = property_package.get_metadata().properties
-        if "pressure" not in property_dict:
+        if not property_dict["pressure"].supported:
             raise ValueError(
                 "Property package supplied to pipeline must have a property "
                 "for 'pressure', which was not found in %s." % type(property_package)
@@ -97,10 +100,7 @@ class PipelineNodeData(UnitModelBlockData):
         # We should probably add a constraint that makes sure it is equal
         # to flow "through" this node.
         state_config = {"defined_state": True}
-        self.state = property_package.build_state_block(
-            time,
-            default=state_config,
-        )
+        self.state = property_package.build_state_block(time, **state_config)
 
         self.add_inlets()
         self.add_outlets()
@@ -206,7 +206,7 @@ class PipelineNodeData(UnitModelBlockData):
         def block_rule(b, i):
             # Each inlet/outlet needs its own state block so it can have its
             # own flow rate, at the very least.
-            b.state = properties.build_state_block(time, default=state_config)
+            b.state = properties.build_state_block(time, **state_config)
             port, refs = self._get_port_and_references(port_name, b.state)
             for ref_name, ref in refs:
                 b.add_component(ref_name, ref)
@@ -261,7 +261,7 @@ class PipelineNodeData(UnitModelBlockData):
             # We don't link pressure to avoid adding extra variables
             # (the node pressure may be used instead) and we don't have an
             # energy balance, so we leave temperature unconnected.
-            b.state = properties.build_state_block(time, default=state_config)
+            b.state = properties.build_state_block(time, **state_config)
             # Add a reference here so we can access flow in the same way
             # as on demand blocks.
             b.flow_mol = Reference(b.state[:].flow_mol)

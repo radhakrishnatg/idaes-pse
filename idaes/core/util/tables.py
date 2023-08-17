@@ -1,18 +1,23 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
+# TODO: Missing doc strings
+# pylint: disable=missing-module-docstring
+# pylint: disable=missing-class-docstring
+
+from collections import OrderedDict
 
 from pandas import DataFrame
-from collections import OrderedDict
+
 from pyomo.environ import value
 from pyomo.network import Arc, Port
 from pyomo.core.base.var import _GeneralVarData, Var
@@ -106,7 +111,7 @@ def stream_states_dict(streams, time_point=0):
                     # properties without state blocks, or the port could
                     # be used to serve the purpose of a translator block.
                     sb = _get_state_from_port(a.ports[1], time_point)
-                except:
+                except:  # pylint: disable=W0702
                     sb = _get_state_from_port(a.ports[0], time_point)
                 _stream_dict_add(sb, n, i)
         elif isinstance(streams[n], Port):
@@ -125,92 +130,6 @@ def stream_states_dict(streams, time_point=0):
                 ) from err
             _stream_dict_add(sb, n)
     return stream_dict
-
-
-def tag_state_quantities(blocks, attributes, labels, exception=False):
-    """Take a stream states dictionary, and return a tag dictionary for stream
-    quantities.  This takes a dictionary (blk) that has state block labels as
-    keys and state blocks as values.  The attributes are a list of attributes to
-    tag.  If an element of the attribute list is list-like, the fist element is
-    the attribute and the remaining elements are indexes.  Lables provides a list
-    of attribute lables to be used to create the tag.  Tags are blk_key + label
-    for the attribute.
-
-    Args:
-        blocks (dict): Dictionary of state blocks.  The key is the block label to
-            be used in the tag, and the value is a state block.
-        attributes (list-like): A list of attriutes to tag.  It is okay if a
-            particular attribute does not exist in a state bock.  This allows
-            you to mix state blocks with differnt sets of attributes. If an
-            attribute is indexed, the attribute can be specified as a list or
-            tuple where the first element is the attribute and the remaining
-            elements are indexes.
-        labels (list-like): These are attribute lables.  The order corresponds to the
-            attribute list.  They are used to create the tags.  Tags are in the
-            form blk.key + label.
-        exception (bool): If True, raise exceptions releated to invalid or
-            missing indexes. If false missing or bad indexes are ignored and
-            None is used for the table value.  Setting this to False allows
-            tables where some state blocks have the same attributes with differnt
-            indexing. (default is True)
-
-    Return:
-        (dict): Dictionary where the keys are tags and the values are model
-            attributes, usually Pyomo component data objects.
-    """
-
-    tags = {}
-    if labels is None:
-        lables = attributes
-        for a in attributes:
-            if isinstance(a, (tuple, list)):
-                if len(a) == 2:
-                    # in case there are multiple indexes and user gives tuple
-                    label = f"{a[0]}[{a[1]}]"
-                if len(a) > 2:
-                    label = f"{a[0]}[{a[1:]}]"
-                else:
-                    label = a[0]
-
-    for key, s in blocks.items():
-        for i, a in enumerate(attributes):
-            j = None
-            if isinstance(a, (list, tuple)):
-                # if a is list or tuple, the first element should be the
-                # attribute and the remaining elements should be indexes.
-                if len(a) == 2:
-                    j = a[1]  # catch user supplying list-like of indexes
-                if len(a) > 2:
-                    j = a[1:]
-                # if len(a) == 1, we'll say that's fine here.  Don't know why you
-                # would put the attribute in a list-like if not indexed, but I'll
-                # allow it.
-                a = a[0]
-            v = getattr(s, a, None)
-            if j is not None and v is not None:
-                try:
-                    v = v[j]
-                except KeyError:
-                    if not exception:
-                        v = None
-                    else:
-                        _log.error(f"{j} is not a valid index of {a}")
-                        raise KeyError(f"{j} is not a valid index of {a}")
-            try:
-                value(v, exception=False)
-            except TypeError:
-                if not exception:
-                    v = None
-                else:
-                    _log.error(f"Cannot calculate value of {a} (may be subscriptable)")
-                    raise TypeError(
-                        f"Cannot calculate value of {a} (may be subscriptable)"
-                    )
-            except ZeroDivisionError:
-                pass  # this one is okay
-            if v is not None:
-                tags[f"{key}{labels[i]}"] = v
-    return tags
 
 
 def create_stream_table_dataframe(
@@ -300,6 +219,7 @@ def create_stream_table_ui(
     Returns:
         A pandas DataFrame containing the stream table data.
     """
+
     # Variable Types:
     class VariableTypes:
         UNFIXED = "unfixed"
@@ -441,12 +361,12 @@ def generate_table(blocks, attributes, heading=None, exception=True):
             Block, can be a Var, Param, or Expression. If an attribute doesn't
             exist or doesn't have a valid value, it will be treated as missing
             data.
-        heading (list or tuple of srings): A list of strings that will be used
+        heading (list or tuple of strings): A list of strings that will be used
             as column headings. If None the attribute names will be used.
-        exception (bool): If True, raise exceptions releated to invalid or
+        exception (bool): If True, raise exceptions related to invalid or
             missing indexes. If false missing or bad indexes are ignored and
             None is used for the table value.  Setting this to False allows
-            tables where some state blocks have the same attributes with differnt
+            tables where some state blocks have the same attributes with different
             indexing. (default is True)
     Returns:
         (DataFrame): A Pandas dataframe containing a data table

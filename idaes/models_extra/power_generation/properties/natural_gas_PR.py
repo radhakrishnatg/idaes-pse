@@ -1,31 +1,23 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
-##############################################################################
-# Institute for the Design of Advanced Energy Systems Process Systems
-# Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2020, by the
-# software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
-# University Research Corporation, et al. All rights reserved.
-#
-# Please see the files COPYRIGHT.txt and LICENSE.txt for full copyright and
-# license information, respectively. Both files are also available online
-# at the URL "https://github.com/IDAES/idaes-pse".
-##############################################################################
 """
 Natural gas property package for the vapor phase using Peng-Robinson equation
 of state.
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-class-docstring
+# pylint: disable=missing-function-docstring
+
 # Import Python libraries
 import logging
 import copy
@@ -42,25 +34,33 @@ from idaes.models.properties.modular_properties.state_definitions import FTPx
 from idaes.models.properties.modular_properties.eos.ceos import Cubic, CubicType
 from idaes.models.properties.modular_properties.eos.ideal import Ideal
 from idaes.models.properties.modular_properties.phase_equil.forms import (
-    fugacity,
     log_fugacity,
 )
 from idaes.models.properties.modular_properties.phase_equil import SmoothVLE
-from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
-    IdealBubbleDew,
+from idaes.models.properties.modular_properties.pure import (
+    NIST,
+    RPP4,
+    RPP5,
+    ChapmanEnskogLennardJones,
+    Eucken,
 )
-from idaes.models.properties.modular_properties.pure import NIST, RPP4, RPP5, Perrys
+from idaes.models.properties.modular_properties.base.generic_reaction import (
+    ConcentrationForm,
+)
+from idaes.models.properties.modular_properties.transport_properties import (
+    ViscosityWilke,
+    ThermalConductivityWMS,
+    NoMethod,
+)
+from idaes.models.properties.modular_properties.transport_properties.viscosity_wilke import (
+    wilke_phi_ij_callback,
+)
 
 from idaes.models.properties.modular_properties.reactions.dh_rxn import constant_dh_rxn
 from idaes.models.properties.modular_properties.reactions.rate_constant import arrhenius
 from idaes.models.properties.modular_properties.reactions.rate_forms import (
     power_law_rate,
 )
-from idaes.models.properties.modular_properties.base.generic_reaction import (
-    GenericReactionParameterBlock,
-    ConcentrationForm,
-)
-import idaes.models.properties.modular_properties.reactions as rxn
 from idaes.core.util.exceptions import ConfigurationError
 
 # Set up logger
@@ -88,11 +88,15 @@ _phase_dicts_pr = {
         "type": VaporPhase,
         "equation_of_state": Cubic,
         "equation_of_state_options": {"type": CubicType.PR},
+        "visc_d_phase": ViscosityWilke,
+        "therm_cond_phase": ThermalConductivityWMS,
     },
     "Liq": {
         "type": LiquidPhase,
         "equation_of_state": Cubic,
         "equation_of_state_options": {"type": CubicType.PR},
+        "visc_d_phase": NoMethod,
+        "therm_cond_phase": NoMethod,
     },
 }
 
@@ -100,6 +104,11 @@ _phase_dicts_ideal = {
     "Vap": {
         "type": VaporPhase,
         "equation_of_state": Ideal,
+        "visc_d_phase": ViscosityWilke,
+        "transport_property_options": {
+            "viscosity_phi_ij_callback": wilke_phi_ij_callback,
+        },
+        "therm_cond_phase": ThermalConductivityWMS,
     },
 }
 
@@ -110,6 +119,9 @@ _component_params = {
         "elemental_composition": {"H": 2},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.0020159, pyunits.kg / pyunits.mol),
             "pressure_crit": (13e5, pyunits.Pa),
@@ -125,6 +137,9 @@ _component_params = {
                 "G": 172.707974,
                 "H": 0.0,
             },
+            "lennard_jones_sigma": (2.826, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (59.7, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "CO": {
@@ -133,6 +148,9 @@ _component_params = {
         "elemental_composition": {"C": 1, "O": 1},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.0280101, pyunits.kg / pyunits.mol),
             "pressure_crit": (35e5, pyunits.Pa),
@@ -148,6 +166,9 @@ _component_params = {
                 "G": 227.3665,
                 "H": -110.5271,
             },
+            "lennard_jones_sigma": (3.690, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (91.7, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "H2O": {
@@ -179,11 +200,16 @@ _component_params = {
                 "B": 1435.264,
                 "C": -64.848,
             },
+            "lennard_jones_sigma": (2.641, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (809.1, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "CO2": {
         "type": Component,
         "valid_phase_types": [PhaseType.vaporPhase],
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "elemental_composition": {"C": 1, "O": 2},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
@@ -203,14 +229,20 @@ _component_params = {
                 "G": 228.2431,
                 "H": -393.5224,
             },
+            "lennard_jones_sigma": (3.941, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (195.2, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "O2": {
         "type": Component,
         "valid_phase_types": [PhaseType.vaporPhase],
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "elemental_composition": {"O": 2},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
         "parameter_data": {
             "mw": (0.031998, pyunits.kg / pyunits.mol),
             "pressure_crit": (50.4e5, pyunits.Pa),
@@ -226,6 +258,9 @@ _component_params = {
                 "G": 236.1663,
                 "H": 0.0,
             },
+            "lennard_jones_sigma": (3.467, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (106.7, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "N2": {
@@ -234,6 +269,9 @@ _component_params = {
         "elemental_composition": {"N": 2},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.0280134, pyunits.kg / pyunits.mol),
             "pressure_crit": (33.9e5, pyunits.Pa),
@@ -249,6 +287,9 @@ _component_params = {
                 "G": 212.39,
                 "H": 0.0,
             },
+            "lennard_jones_sigma": (3.798, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (71.4, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "Ar": {
@@ -257,6 +298,9 @@ _component_params = {
         "elemental_composition": {"Ar": 1},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.039948, pyunits.kg / pyunits.mol),
             "pressure_crit": (48.7e5, pyunits.Pa),
@@ -272,6 +316,9 @@ _component_params = {
                 "G": 179.999,
                 "H": 0.0,
             },
+            "lennard_jones_sigma": (3.542, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (93.3, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "CH4": {
@@ -280,6 +327,9 @@ _component_params = {
         "elemental_composition": {"C": 1, "H": 4},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.0160425, pyunits.kg / pyunits.mol),
             "pressure_crit": (46e5, pyunits.Pa),
@@ -295,6 +345,9 @@ _component_params = {
                 "G": 158.7163,
                 "H": -74.8731,
             },
+            "lennard_jones_sigma": (3.758, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (148.6, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "C2H6": {
@@ -303,6 +356,9 @@ _component_params = {
         "elemental_composition": {"C": 2, "H": 6},
         "enth_mol_ig_comp": RPP4,
         "entr_mol_ig_comp": RPP4,
+        "cp_mol_ig_comp": RPP4,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.030069, pyunits.kg / pyunits.mol),
             "pressure_crit": (48.8e5, pyunits.Pa),
@@ -316,6 +372,9 @@ _component_params = {
             },
             "enth_mol_form_vap_comp_ref": (-84000, pyunits.J / pyunits.mol),
             "entr_mol_form_vap_comp_ref": (229.2, pyunits.J / pyunits.mol / pyunits.K),
+            "lennard_jones_sigma": (4.443, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (215.7, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "C3H8": {
@@ -324,6 +383,9 @@ _component_params = {
         "elemental_composition": {"C": 3, "H": 8},
         "enth_mol_ig_comp": RPP4,
         "entr_mol_ig_comp": RPP4,
+        "cp_mol_ig_comp": RPP4,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.0320849, pyunits.kg / pyunits.mol),
             "pressure_crit": (42.5e5, pyunits.Pa),
@@ -337,6 +399,9 @@ _component_params = {
             },
             "enth_mol_form_vap_comp_ref": (-104700, pyunits.J / pyunits.mol),
             "entr_mol_form_vap_comp_ref": (270.3, pyunits.J / pyunits.mol / pyunits.K),
+            "lennard_jones_sigma": (5.118, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (237.1, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "C4H10": {
@@ -345,6 +410,9 @@ _component_params = {
         "elemental_composition": {"C": 4, "H": 10},
         "enth_mol_ig_comp": RPP5,
         "entr_mol_ig_comp": RPP5,
+        "cp_mol_ig_comp": RPP5,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.058123, pyunits.kg / pyunits.mol),  # RPP5
             "pressure_crit": (37.96e5, pyunits.Pa),  # RPP5
@@ -362,6 +430,14 @@ _component_params = {
                 310.23,
                 pyunits.J / pyunits.mol / pyunits.K,
             ),  # wikipedia data page
+            # LJ parameters for n-butane from Appendix B of Properties of Gases and Liquids, 5th Ed.
+            # Estimating LJ parameters from viscosity is underdetermined: the group
+            # sigma ** 2 * sqrt(epsilon) is more significant. For n-butane, that is 506.4 angstrom ** 2 sqrt(K)
+            # for the LJ parameters for isobutane, it is 506.1 angstrom ** 2 sqrt(K).
+            # In short, the n-butane parameters will adequately represent both species for most temperatures
+            "lennard_jones_sigma": (4.687, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (531.4, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "H2S": {
@@ -370,6 +446,9 @@ _component_params = {
         "elemental_composition": {"H": 2, "S": 1},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.034081, pyunits.kg / pyunits.mol),  # NIST
             "pressure_crit": (89.6291e5, pyunits.Pa),  # NIST <- Goodwin 1983
@@ -385,6 +464,9 @@ _component_params = {
                 "G": 233.3747,
                 "H": -20.50202,
             },
+            "lennard_jones_sigma": (3.623, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (301.1, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "SO2": {
@@ -393,6 +475,9 @@ _component_params = {
         "elemental_composition": {"S": 1, "O": 2},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.064064, pyunits.kg / pyunits.mol),  # NIST
             "pressure_crit": (78.84e5, pyunits.Pa),  # RPP5
@@ -408,6 +493,9 @@ _component_params = {
                 "G": 254.8872,
                 "H": -296.8422,
             },
+            "lennard_jones_sigma": (4.112, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (335.4, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
     "C2H4": {
@@ -416,6 +504,9 @@ _component_params = {
         "elemental_composition": {"C": 2, "H": 4},
         "enth_mol_ig_comp": NIST,
         "entr_mol_ig_comp": NIST,
+        "cp_mol_ig_comp": NIST,
+        "visc_d_phase_comp": {"Vap": ChapmanEnskogLennardJones},
+        "therm_cond_phase_comp": {"Vap": Eucken},
         "parameter_data": {
             "mw": (0.0280532, pyunits.kg / pyunits.mol),  # NIST
             "pressure_crit": (50.6e5, pyunits.Pa),  # NIST
@@ -431,10 +522,15 @@ _component_params = {
                 "G": 163.1568,
                 "H": 52.46694,
             },
+            "lennard_jones_sigma": (4.163, pyunits.angstrom),
+            "lennard_jones_epsilon_reduced": (224.7, pyunits.K),
+            "f_int_eucken": 1,
         },
     },
 }
 
+_water_visc_d = {"Vap": ChapmanEnskogLennardJones, "Liq": None}
+_water_therm_cond = {"Vap": Eucken, "Liq": None}
 
 # returns a configuration dictionary for the list of specified components
 def get_prop(components=None, phases="Vap", eos=EosType.PR, scaled=False):
@@ -464,10 +560,17 @@ def get_prop(components=None, phases="Vap", eos=EosType.PR, scaled=False):
     }
 
     c = configuration["components"]
-    for comp in components:
-        c[comp] = copy.deepcopy(_component_params[comp])
     if isinstance(phases, str):
         phases = [phases]
+    for comp in components:
+        c[comp] = copy.deepcopy(_component_params[comp])
+        if comp == "H2O":
+            c["H2O"]["visc_d_phase_comp"] = copy.deepcopy(
+                {p: _water_visc_d[p] for p in phases}
+            )
+            c["H2O"]["therm_cond_phase_comp"] = copy.deepcopy(
+                {p: _water_therm_cond[p] for p in phases}
+            )
     for k in phases:
         if eos == EosType.PR:
             configuration["phases"][k] = copy.deepcopy(_phase_dicts_pr[k])
@@ -514,9 +617,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "H2O"): 2,
                     ("Vap", "CO2"): 1,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -531,9 +634,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "H2O"): 6,
                     ("Vap", "CO2"): 4,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -548,9 +651,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "H2O"): 4,
                     ("Vap", "CO2"): 3,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -565,9 +668,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "H2O"): 10,
                     ("Vap", "CO2"): 8,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -581,9 +684,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "O2"): -1,
                     ("Vap", "CO2"): 2,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -597,9 +700,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "O2"): -1,
                     ("Vap", "H2O"): 2,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -614,9 +717,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "H2O"): 2,
                     ("Vap", "SO2"): 2,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,
@@ -631,9 +734,9 @@ def get_rxn(property_package, reactions=None, scaled=False):
                     ("Vap", "H2O"): 2,
                     ("Vap", "CO2"): 2,
                 },
-                "heat_of_reaction": rxn.dh_rxn.constant_dh_rxn,
-                "rate_constant": rxn.rate_constant.arrhenius,
-                "rate_form": rxn.rate_forms.power_law_rate,
+                "heat_of_reaction": constant_dh_rxn,
+                "rate_constant": arrhenius,
+                "rate_form": power_law_rate,
                 "concentration_form": ConcentrationForm.moleFraction,
                 "parameter_data": {
                     "dh_rxn_ref": 0,

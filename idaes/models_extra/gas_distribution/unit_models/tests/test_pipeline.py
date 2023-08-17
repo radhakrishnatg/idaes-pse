@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 import itertools
 import math
@@ -24,18 +24,11 @@ from pyomo.dae.flatten import flatten_dae_components
 
 from pyomo.contrib.incidence_analysis import (
     IncidenceGraphInterface,
-    solve_strongly_connected_components,
-)
-from pyomo.contrib.incidence_analysis.interface import (
-    _generate_variables_in_constraints,
 )
 from pyomo.util.check_units import assert_units_consistent
 from pyomo.util.subsystems import ParamSweeper
 
 import idaes.core as idaes
-from idaes.models.properties.modular_properties.base.generic_property import (
-    GenericParameterBlock,
-)
 from idaes.core.util.model_statistics import (
     degrees_of_freedom,
     large_residuals_set,
@@ -53,6 +46,7 @@ from idaes.apps.nmpc.dynamic_data import (
     load_inputs_into_model,
     interval_data_from_time_series,
 )
+from idaes.core.solvers import get_solver
 
 """
 Test for the simple pipeline model
@@ -138,13 +132,13 @@ class TestSolvePipelineSquare(unittest.TestCase):
         default = {
             "dynamic": False,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
             "finite_elements": 1,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
         pipeline = m.fs.pipeline
         p = "Vap"
         j = next(iter(m.fs.properties.component_list))
@@ -169,7 +163,7 @@ class TestSolvePipelineSquare(unittest.TestCase):
 
         t0 = m.fs.time.first()
 
-        ipopt = pyo.SolverFactory("ipopt")
+        ipopt = get_solver("ipopt")
 
         res = ipopt.solve(m, tee=True)
         pyo.assert_optimal_termination(res)
@@ -203,13 +197,13 @@ class TestSolvePipelineSquare(unittest.TestCase):
             default = {
                 "dynamic": False,
             }
-            m.fs = idaes.FlowsheetBlock(default=default)
+            m.fs = idaes.FlowsheetBlock(**default)
             m.fs.properties = NaturalGasParameterBlock()
             pipeline_config = {
                 "property_package": m.fs.properties,
                 "finite_elements": nxfe,
             }
-            m.fs.pipeline = GasPipeline(default=pipeline_config)
+            m.fs.pipeline = GasPipeline(**pipeline_config)
             pipeline = m.fs.pipeline
             p = "Vap"
             j = next(iter(m.fs.properties.component_list))
@@ -258,10 +252,10 @@ class TestSolvePipelineSquare(unittest.TestCase):
             param_sweeper = ParamSweeper(
                 n_scen,
                 input_values,
-                to_fix=input_values,
+                to_fix=list(input_values.keys()),
                 output_values=target_values,
             )
-            ipopt = pyo.SolverFactory("ipopt")
+            ipopt = get_solver("ipopt")
             with param_sweeper:
                 # Note that doing this in a context manager means that
                 # on error, values are reset. This is inconvenient
@@ -297,7 +291,7 @@ class TestSolveDynamicPipeline(unittest.TestCase):
     ):
         m = pyo.ConcreteModel()
         default = {"dynamic": False}
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
@@ -305,7 +299,7 @@ class TestSolveDynamicPipeline(unittest.TestCase):
             "transformation_scheme": scheme,
             "has_holdup": True,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
         cv = m.fs.pipeline.control_volume
         # Fix geometry variables
         m.fs.pipeline.diameter.fix(0.92 * pyo.units.m)
@@ -355,7 +349,7 @@ class TestSolveDynamicPipeline(unittest.TestCase):
         Inlet pressure and outlet flow rate will be fixed.
         """
         nxfe = 4
-        ipopt = pyo.SolverFactory("ipopt")
+        ipopt = get_solver("ipopt")
 
         m_steady = self.make_steady_model(nfe=nxfe)
         self.fix_model_inlets(m_steady)
@@ -370,13 +364,13 @@ class TestSolveDynamicPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
             "finite_elements": nxfe,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
         assert_units_consistent(m)
@@ -530,7 +524,7 @@ class TestSolveDynamicPipeline(unittest.TestCase):
         and 5e5 kg/hr.
         """
         nxfe = 4
-        ipopt = pyo.SolverFactory("ipopt")
+        ipopt = get_solver("ipopt")
 
         # Steady state data
         m_steady = self.make_steady_model(nfe=nxfe)
@@ -560,13 +554,13 @@ class TestSolveDynamicPipeline(unittest.TestCase):
             "time_set": [t0, horizon],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
             "finite_elements": nxfe,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
         assert_units_consistent(m)
@@ -797,12 +791,12 @@ class TestConstructPipeline(unittest.TestCase):
         default = {
             "dynamic": False,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         pipeline = m.fs.pipeline
         cv = pipeline.control_volume
@@ -827,12 +821,12 @@ class TestConstructPipeline(unittest.TestCase):
         default = {
             "dynamic": False,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         pipeline = m.fs.pipeline
         cv = pipeline.control_volume
@@ -857,13 +851,13 @@ class TestConstructPipeline(unittest.TestCase):
         default = {
             "dynamic": False,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
             "finite_elements": 2,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
         pipeline = m.fs.pipeline
 
         cv = m.fs.pipeline.control_volume
@@ -925,13 +919,13 @@ class TestConstructPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
             "finite_elements": 4,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
         self.assertTrue(isinstance(cv.material_balances, pyo.Constraint))
@@ -996,13 +990,13 @@ class TestConstructPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
             "finite_elements": 4,
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
         assert_units_consistent(m)
@@ -1056,7 +1050,7 @@ class TestConstructPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
@@ -1064,7 +1058,7 @@ class TestConstructPipeline(unittest.TestCase):
             "transformation_method": "dae.finite_difference",
             "transformation_scheme": "FORWARD",
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
 
@@ -1121,7 +1115,7 @@ class TestConstructPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
@@ -1129,7 +1123,7 @@ class TestConstructPipeline(unittest.TestCase):
             "transformation_method": "dae.finite_difference",
             "transformation_scheme": "BACKWARD",
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
 
@@ -1186,7 +1180,7 @@ class TestConstructPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
@@ -1195,7 +1189,7 @@ class TestConstructPipeline(unittest.TestCase):
             "transformation_method": "dae.collocation",
             "transformation_scheme": "LAGRANGE-RADAU",
         }
-        m.fs.pipeline = GasPipeline(default=pipeline_config)
+        m.fs.pipeline = GasPipeline(**pipeline_config)
 
         cv = m.fs.pipeline.control_volume
 
@@ -1255,7 +1249,7 @@ class TestConstructPipeline(unittest.TestCase):
             "time_set": [0.0, 20.0],
             "time_units": pyo.units.hr,
         }
-        m.fs = idaes.FlowsheetBlock(default=default)
+        m.fs = idaes.FlowsheetBlock(**default)
         m.fs.properties = NaturalGasParameterBlock()
         pipeline_config = {
             "property_package": m.fs.properties,
@@ -1265,7 +1259,7 @@ class TestConstructPipeline(unittest.TestCase):
             "transformation_scheme": "LAGRANGE-LEGENDRE",
         }
         with self.assertRaisesRegex(ValueError, "Discretization scheme"):
-            m.fs.pipeline = GasPipeline(default=pipeline_config)
+            m.fs.pipeline = GasPipeline(**pipeline_config)
 
         #
         # The following is the failing test that causes Legendre

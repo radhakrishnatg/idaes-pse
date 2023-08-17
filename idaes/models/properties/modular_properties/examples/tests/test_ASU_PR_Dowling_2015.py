@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Author: Andrew Lee, Alejandro Garciadiego
@@ -45,7 +45,7 @@ from idaes.models.properties.modular_properties.examples.ASU_PR import (
 )
 
 from idaes.models.properties.tests.test_harness import PropertyTestHarness
-
+from idaes.models.properties.modular_properties.eos.ceos import cubic_roots_available
 
 # -----------------------------------------------------------------------------
 # Get default solver for testing
@@ -59,6 +59,7 @@ def _as_quantity(x):
     return value(x) * unit._get_pint_unit()
 
 
+@pytest.mark.skipif(not cubic_roots_available(), reason="Cubic functions not available")
 class TestASUPR(PropertyTestHarness):
     def configure(self):
         self.prop_pack = GenericParameterBlock
@@ -76,7 +77,7 @@ class TestParamBlock(object):
     @pytest.mark.unit
     def test_build(self):
         model = ConcreteModel()
-        model.params = GenericParameterBlock(default=configuration_Dowling_2015)
+        model.params = GenericParameterBlock(**configuration_Dowling_2015)
 
         assert isinstance(model.params.phase_list, Set)
         assert len(model.params.phase_list) == 2
@@ -148,15 +149,14 @@ class TestParamBlock(object):
         assert_units_consistent(model)
 
 
+@pytest.mark.skipif(not cubic_roots_available(), reason="Cubic functions not available")
 class TestStateBlock(object):
     @pytest.fixture(scope="class")
     def model(self):
         model = ConcreteModel()
-        model.params = GenericParameterBlock(default=configuration_Dowling_2015)
+        model.params = GenericParameterBlock(**configuration_Dowling_2015)
 
-        model.props = model.params.build_state_block(
-            [1], default={"defined_state": True}
-        )
+        model.props = model.params.build_state_block([1], defined_state=True)
 
         return model
 

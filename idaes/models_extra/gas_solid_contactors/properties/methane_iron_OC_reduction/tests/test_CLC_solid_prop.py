@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for CLC solid phase thermo state block; tests for construction and solve
@@ -42,12 +42,12 @@ solver = get_solver()
 @pytest.fixture(scope="class")
 def solid_prop():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # solid properties and state inlet block
     m.fs.properties = SolidPhaseParameterBlock()
     m.fs.unit = m.fs.properties.build_state_block(
-        [0], default={"parameters": m.fs.properties, "defined_state": True}
+        [0], parameters=m.fs.properties, defined_state=True
     )
 
     m.fs.unit[0].flow_mass.fix(1)
@@ -77,12 +77,12 @@ def test_setInputs_state_block(solid_prop):
 @pytest.fixture(scope="class")
 def solid_prop_unscaled():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # solid properties and state inlet block
     m.fs.properties = SolidPhaseParameterBlock()
     m.fs.unit = m.fs.properties.build_state_block(
-        [0], default={"parameters": m.fs.properties, "defined_state": True}
+        [0], parameters=m.fs.properties, defined_state=True
     )
 
     m.fs.unit[0].flow_mass.fix(1)

@@ -1,21 +1,20 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Library of common forms for phase equilibrium constraints
 """
 from pyomo.environ import ConcreteModel, Expression, value, Var, units as pyunits
 
-from pyomo.util.check_units import assert_units_consistent
 from idaes.models.properties.modular_properties.base.generic_property import (
     GenericParameterBlock,
 )
@@ -66,29 +65,27 @@ def test_henry_invalid_phase_type():
         "phase.",
     ):
         m.params = GenericParameterBlock(
-            default={
-                "components": {
-                    "H2O": {
-                        "parameter_data": {"temperature_crit": 647.3},
-                        "henry_component": {"Vap": ConstantH},
-                        "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
-                    }
-                },
-                "phases": {
-                    "Liq": {"equation_of_state": DummyEoS},
-                    "Vap": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": FTPx,
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={
+                "H2O": {
+                    "parameter_data": {"temperature_crit": 647.3},
+                    "henry_component": {"Vap": ConstantH},
+                    "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
+                }
+            },
+            phases={
+                "Liq": {"equation_of_state": DummyEoS},
+                "Vap": {"equation_of_state": DummyEoS},
+            },
+            state_definition=FTPx,
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
 
@@ -109,29 +106,27 @@ def test_henry_invalid_phase_name():
         "phase name.",
     ):
         m.params = GenericParameterBlock(
-            default={
-                "components": {
-                    "H2O": {
-                        "parameter_data": {"temperature_crit": 647.3},
-                        "henry_component": {"foo": ConstantH},
-                        "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
-                    }
-                },
-                "phases": {
-                    "Liq": {"equation_of_state": DummyEoS},
-                    "Vap": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": FTPx,
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={
+                "H2O": {
+                    "parameter_data": {"temperature_crit": 647.3},
+                    "henry_component": {"foo": ConstantH},
+                    "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
+                }
+            },
+            phases={
+                "Liq": {"equation_of_state": DummyEoS},
+                "Vap": {"equation_of_state": DummyEoS},
+            },
+            state_definition=FTPx,
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
 
@@ -146,34 +141,29 @@ def test_constant_H():
 
     # Create a dummy parameter block
     m.params = GenericParameterBlock(
-        default={
-            "components": {
-                "H2O": {
-                    "parameter_data": {
-                        "temperature_crit": 647.3,
-                        "henry_ref": {"Liq": 86},
-                    },
-                    "henry_component": {
-                        "Liq": {"method": ConstantH, "type": HenryType.Kpx}
-                    },
-                    "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
-                }
-            },
-            "phases": {
-                "Liq": {"equation_of_state": DummyEoS},
-                "Vap": {"equation_of_state": DummyEoS},
-            },
-            "state_definition": FTPx,
-            "pressure_ref": 1e5,
-            "temperature_ref": 300,
-            "base_units": {
-                "time": pyunits.s,
-                "length": pyunits.m,
-                "mass": pyunits.kg,
-                "amount": pyunits.mol,
-                "temperature": pyunits.K,
-            },
-        }
+        components={
+            "H2O": {
+                "parameter_data": {"temperature_crit": 647.3, "henry_ref": {"Liq": 86}},
+                "henry_component": {
+                    "Liq": {"method": ConstantH, "type": HenryType.Kpx}
+                },
+                "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
+            }
+        },
+        phases={
+            "Liq": {"equation_of_state": DummyEoS},
+            "Vap": {"equation_of_state": DummyEoS},
+        },
+        state_definition=FTPx,
+        pressure_ref=100000.0,
+        temperature_ref=300,
+        base_units={
+            "time": pyunits.s,
+            "length": pyunits.m,
+            "mass": pyunits.kg,
+            "amount": pyunits.mol,
+            "temperature": pyunits.K,
+        },
     )
 
     assert isinstance(m.params.H2O.henry_ref_Liq, Var)
@@ -204,34 +194,29 @@ def test_invalid_henry_type():
         return 42
 
     m.params = GenericParameterBlock(
-        default={
-            "components": {
-                "H2O": {
-                    "parameter_data": {
-                        "temperature_crit": 647.3,
-                        "henry_ref": {"Liq": 86},
-                    },
-                    "henry_component": {
-                        "Liq": {"method": debugMethod, "type": HenryType.Dummy}
-                    },
-                    "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
-                }
-            },
-            "phases": {
-                "Liq": {"equation_of_state": DummyEoS},
-                "Vap": {"equation_of_state": DummyEoS},
-            },
-            "state_definition": FTPx,
-            "pressure_ref": 1e5,
-            "temperature_ref": 300,
-            "base_units": {
-                "time": pyunits.s,
-                "length": pyunits.m,
-                "mass": pyunits.kg,
-                "amount": pyunits.mol,
-                "temperature": pyunits.K,
-            },
-        }
+        components={
+            "H2O": {
+                "parameter_data": {"temperature_crit": 647.3, "henry_ref": {"Liq": 86}},
+                "henry_component": {
+                    "Liq": {"method": debugMethod, "type": HenryType.Dummy}
+                },
+                "phase_equilibrium_form": {("Vap", "Liq"): fugacity},
+            }
+        },
+        phases={
+            "Liq": {"equation_of_state": DummyEoS},
+            "Vap": {"equation_of_state": DummyEoS},
+        },
+        state_definition=FTPx,
+        pressure_ref=100000.0,
+        temperature_ref=300,
+        base_units={
+            "time": pyunits.s,
+            "length": pyunits.m,
+            "mass": pyunits.kg,
+            "amount": pyunits.mol,
+            "temperature": pyunits.K,
+        },
     )
 
     with pytest.raises(
@@ -277,7 +262,7 @@ def test_equilibrium_ratio():
     for htype, split in zip(henry_types, expected_split):
         config_dict["components"]["H2O"]["henry_component"]["Liq"]["type"] = htype
         m = ConcreteModel()
-        m.params = GenericParameterBlock(default=config_dict)
+        m.params = GenericParameterBlock(**config_dict)
 
         m.state = m.params.build_state_block([0])
         m.state[0].mole_frac_phase_comp["Liq", "H2O"].value = 0.5
@@ -291,5 +276,6 @@ def test_equilibrium_ratio():
             henry_equilibrium_ratio(m.state[0], "Liq", "H2O")
         )
         assert (
-            pyunits.get_units(henry_equilibrium_ratio(m.state[0], "Liq", "H2O")) is None
+            str(pyunits.get_units(henry_equilibrium_ratio(m.state[0], "Liq", "H2O")))
+            is "dimensionless"
         )

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for FpcTP state formulation
@@ -27,7 +27,6 @@ from idaes.models.properties.modular_properties.state_definitions.FpcTP import (
     FpcTP,
     define_state,
     set_metadata,
-    define_default_scaling_factors,
 )
 from idaes.core import (
     FlowsheetBlock,
@@ -47,10 +46,12 @@ from idaes.models.properties.modular_properties.base.generic_property import (
 from idaes.models.properties.modular_properties.base.tests.dummy_eos import DummyEoS
 from idaes.models.properties.modular_properties.pure.Perrys import Perrys
 from idaes.models.properties.modular_properties.pure.NIST import NIST
-from idaes.generic_models.properties.core.phase_equil.forms import fugacity
-from idaes.generic_models.properties.core.eos.ideal import Ideal
-from idaes.generic_models.properties.core.phase_equil import SmoothVLE
-from idaes.generic_models.properties.core.phase_equil.bubble_dew import IdealBubbleDew
+from idaes.models.properties.modular_properties.phase_equil.forms import fugacity
+from idaes.models.properties.modular_properties.eos.ideal import Ideal
+from idaes.models.properties.modular_properties.phase_equil import SmoothVLE
+from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
+    IdealBubbleDew,
+)
 from idaes.core.util.exceptions import ConfigurationError
 import idaes.logger as idaeslog
 from idaes.core.util.model_statistics import degrees_of_freedom, large_residuals_set
@@ -72,21 +73,19 @@ class TestInvalidBounds(object):
         m = ConcreteModel()
 
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {"p1": {"equation_of_state": DummyEoS}},
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-                "state_bounds": {"foo": (None, None, None)},
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={"p1": {"equation_of_state": DummyEoS}},
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
+            state_bounds={"foo": (None, None, None)},
         )
 
         with pytest.raises(
@@ -97,7 +96,7 @@ class TestInvalidBounds(object):
             "correctly.",
         ):
             # Build state block
-            m.props = m.params.build_state_block([1], default={"defined_state": True})
+            m.props = m.params.build_state_block([1], defined_state=True)
 
     @pytest.mark.unit
     def test_mole_frac(self, caplog):
@@ -108,21 +107,19 @@ class TestInvalidBounds(object):
         )
 
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {"p1": {"equation_of_state": DummyEoS}},
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-                "state_bounds": {"mole_frac_comp": (None, None, None)},
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={"p1": {"equation_of_state": DummyEoS}},
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
+            state_bounds={"mole_frac_comp": (None, None, None)},
         )
 
         with pytest.raises(
@@ -133,7 +130,7 @@ class TestInvalidBounds(object):
             "variable names correctly.",
         ):
             # Build state block
-            m.props = m.params.build_state_block([1], default={"defined_state": False})
+            m.props = m.params.build_state_block([1], defined_state=False)
 
 
 class Test1PhaseDefinedStateFalseNoBounds(object):
@@ -143,24 +140,22 @@ class Test1PhaseDefinedStateFalseNoBounds(object):
         m = ConcreteModel()
 
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {"p1": {"equation_of_state": DummyEoS}},
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={"p1": {"equation_of_state": DummyEoS}},
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": False})
+        m.props = m.params.build_state_block([1], defined_state=False)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -180,7 +175,7 @@ class Test1PhaseDefinedStateFalseNoBounds(object):
         # the correct values
         assert isinstance(frame.props[1].flow_mol_phase_comp, Var)
         assert len(frame.props[1].flow_mol_phase_comp) == 3
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert (p, i) in frame.props[1].params._phase_component_set
             assert frame.props[1].flow_mol_phase_comp[p, i].value is None
         assert check_units_equivalent(
@@ -261,7 +256,7 @@ class Test1PhaseDefinedStateFalseNoBounds(object):
         # Check that the correct constraints are present
         assert isinstance(frame.props[1].mole_frac_phase_comp_eq, Constraint)
         assert len(frame.props[1].mole_frac_phase_comp_eq) == 3
-        for (p, i) in frame.props[1].mole_frac_phase_comp_eq:
+        for p, i in frame.props[1].mole_frac_phase_comp_eq:
             assert str(frame.props[1].mole_frac_phase_comp_eq[p, i].body) == str(
                 frame.props[1].mole_frac_phase_comp[p, i]
                 * frame.props[1].flow_mol_phase[p]
@@ -279,29 +274,27 @@ class Test1PhaseDefinedStateTrueWithBounds(object):
 
         # Create a dummy parameter block
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {"p1": {"equation_of_state": DummyEoS}},
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "state_bounds": {
-                    "flow_mol_phase_comp": (0, 100, 200),
-                    "temperature": (290, 345, 400),
-                    "pressure": (1e5, 3e5, 5e5),
-                },
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={"p1": {"equation_of_state": DummyEoS}},
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            state_bounds={
+                "flow_mol_phase_comp": (0, 100, 200),
+                "temperature": (290, 345, 400),
+                "pressure": (100000.0, 300000.0, 500000.0),
+            },
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": True})
+        m.props = m.params.build_state_block([1], defined_state=True)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -321,7 +314,7 @@ class Test1PhaseDefinedStateTrueWithBounds(object):
         # the correct values
         assert isinstance(frame.props[1].flow_mol_phase_comp, Var)
         assert len(frame.props[1].flow_mol_phase_comp) == 3
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert (p, i) in frame.props[1].params._phase_component_set
             assert frame.props[1].flow_mol_phase_comp[p, i].value == 100
             assert frame.props[1].flow_mol_phase_comp[p, i].lb == 0
@@ -408,7 +401,7 @@ class Test1PhaseDefinedStateTrueWithBounds(object):
         # Check that the correct constraints are present
         assert isinstance(frame.props[1].mole_frac_phase_comp_eq, Constraint)
         assert len(frame.props[1].mole_frac_phase_comp_eq) == 3
-        for (p, i) in frame.props[1].mole_frac_phase_comp_eq:
+        for p, i in frame.props[1].mole_frac_phase_comp_eq:
             assert str(frame.props[1].mole_frac_phase_comp_eq[p, i].body) == str(
                 frame.props[1].mole_frac_phase_comp[p, i]
                 * frame.props[1].flow_mol_phase[p]
@@ -426,27 +419,25 @@ class Test2PhaseDefinedStateFalseNoBounds(object):
 
         # Create a dummy parameter block
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {
-                    "p1": {"equation_of_state": DummyEoS},
-                    "p2": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={
+                "p1": {"equation_of_state": DummyEoS},
+                "p2": {"equation_of_state": DummyEoS},
+            },
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": False})
+        m.props = m.params.build_state_block([1], defined_state=False)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -466,7 +457,7 @@ class Test2PhaseDefinedStateFalseNoBounds(object):
         # the correct values
         assert isinstance(frame.props[1].flow_mol_phase_comp, Var)
         assert len(frame.props[1].flow_mol_phase_comp) == 6
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert (p, i) in frame.props[1].params._phase_component_set
             assert frame.props[1].flow_mol_phase_comp[p, i].value is None
         assert check_units_equivalent(
@@ -549,7 +540,7 @@ class Test2PhaseDefinedStateFalseNoBounds(object):
         # Check that the correct constraints are present
         assert isinstance(frame.props[1].mole_frac_phase_comp_eq, Constraint)
         assert len(frame.props[1].mole_frac_phase_comp_eq) == 6
-        for (p, i) in frame.props[1].mole_frac_phase_comp_eq:
+        for p, i in frame.props[1].mole_frac_phase_comp_eq:
             assert str(frame.props[1].mole_frac_phase_comp_eq[p, i].body) == str(
                 frame.props[1].mole_frac_phase_comp[p, i]
                 * frame.props[1].flow_mol_phase[p]
@@ -567,32 +558,30 @@ class Test2PhaseDefinedStateTrueWithBounds(object):
 
         # Create a dummy parameter block
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {
-                    "p1": {"equation_of_state": DummyEoS},
-                    "p2": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "state_bounds": {
-                    "flow_mol_phase_comp": (0, 100, 200),
-                    "temperature": (290, 345, 400),
-                    "pressure": (1e5, 3e5, 5e5),
-                },
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={
+                "p1": {"equation_of_state": DummyEoS},
+                "p2": {"equation_of_state": DummyEoS},
+            },
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            state_bounds={
+                "flow_mol_phase_comp": (0, 100, 200),
+                "temperature": (290, 345, 400),
+                "pressure": (100000.0, 300000.0, 500000.0),
+            },
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": True})
+        m.props = m.params.build_state_block([1], defined_state=True)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -612,7 +601,7 @@ class Test2PhaseDefinedStateTrueWithBounds(object):
         # the correct values
         assert isinstance(frame.props[1].flow_mol_phase_comp, Var)
         assert len(frame.props[1].flow_mol_phase_comp) == 6
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert (p, i) in frame.props[1].params._phase_component_set
             assert frame.props[1].flow_mol_phase_comp[p, i].value == 100
             assert frame.props[1].flow_mol_phase_comp[p, i].lb == 0
@@ -701,7 +690,7 @@ class Test2PhaseDefinedStateTrueWithBounds(object):
         # Check that the correct constraints are present
         assert isinstance(frame.props[1].mole_frac_phase_comp_eq, Constraint)
         assert len(frame.props[1].mole_frac_phase_comp_eq) == 6
-        for (p, i) in frame.props[1].mole_frac_phase_comp_eq:
+        for p, i in frame.props[1].mole_frac_phase_comp_eq:
             assert str(frame.props[1].mole_frac_phase_comp_eq[p, i].body) == str(
                 frame.props[1].mole_frac_phase_comp[p, i]
                 * frame.props[1].flow_mol_phase[p]
@@ -719,28 +708,26 @@ class Test3PhaseDefinedStateFalseNoBounds(object):
 
         # Create a dummy parameter block
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {
-                    "p1": {"equation_of_state": DummyEoS},
-                    "p2": {"equation_of_state": DummyEoS},
-                    "p3": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={
+                "p1": {"equation_of_state": DummyEoS},
+                "p2": {"equation_of_state": DummyEoS},
+                "p3": {"equation_of_state": DummyEoS},
+            },
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": False})
+        m.props = m.params.build_state_block([1], defined_state=False)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -760,7 +747,7 @@ class Test3PhaseDefinedStateFalseNoBounds(object):
         # the correct values
         assert isinstance(frame.props[1].flow_mol_phase_comp, Var)
         assert len(frame.props[1].flow_mol_phase_comp) == 9
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert (p, i) in frame.props[1].params._phase_component_set
             assert frame.props[1].flow_mol_phase_comp[p, i].value is None
         assert check_units_equivalent(
@@ -843,7 +830,7 @@ class Test3PhaseDefinedStateFalseNoBounds(object):
         # Check that the correct constraints are present
         assert isinstance(frame.props[1].mole_frac_phase_comp_eq, Constraint)
         assert len(frame.props[1].mole_frac_phase_comp_eq) == 9
-        for (p, i) in frame.props[1].mole_frac_phase_comp_eq:
+        for p, i in frame.props[1].mole_frac_phase_comp_eq:
             assert str(frame.props[1].mole_frac_phase_comp_eq[p, i].body) == str(
                 frame.props[1].mole_frac_phase_comp[p, i]
                 * frame.props[1].flow_mol_phase[p]
@@ -861,33 +848,31 @@ class Test3PhaseDefinedStateTrueWithBounds(object):
 
         # Create a dummy parameter block
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {
-                    "p1": {"equation_of_state": DummyEoS},
-                    "p2": {"equation_of_state": DummyEoS},
-                    "p3": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": modules[__name__],
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "state_bounds": {
-                    "flow_mol_phase_comp": (0, 100, 200),
-                    "temperature": (290, 345, 400),
-                    "pressure": (1e5, 3e5, 5e5),
-                },
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={
+                "p1": {"equation_of_state": DummyEoS},
+                "p2": {"equation_of_state": DummyEoS},
+                "p3": {"equation_of_state": DummyEoS},
+            },
+            state_definition=modules[__name__],
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            state_bounds={
+                "flow_mol_phase_comp": (0, 100, 200),
+                "temperature": (290, 345, 400),
+                "pressure": (100000.0, 300000.0, 500000.0),
+            },
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": True})
+        m.props = m.params.build_state_block([1], defined_state=True)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -907,7 +892,7 @@ class Test3PhaseDefinedStateTrueWithBounds(object):
         # the correct values
         assert isinstance(frame.props[1].flow_mol_phase_comp, Var)
         assert len(frame.props[1].flow_mol_phase_comp) == 9
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert (p, i) in frame.props[1].params._phase_component_set
             assert frame.props[1].flow_mol_phase_comp[p, i].value == 100
             assert frame.props[1].flow_mol_phase_comp[p, i].lb == 0
@@ -996,7 +981,7 @@ class Test3PhaseDefinedStateTrueWithBounds(object):
         # Check that the correct constraints are present
         assert isinstance(frame.props[1].mole_frac_phase_comp_eq, Constraint)
         assert len(frame.props[1].mole_frac_phase_comp_eq) == 9
-        for (p, i) in frame.props[1].mole_frac_phase_comp_eq:
+        for p, i in frame.props[1].mole_frac_phase_comp_eq:
             assert str(frame.props[1].mole_frac_phase_comp_eq[p, i].body) == str(
                 frame.props[1].mole_frac_phase_comp[p, i]
                 * frame.props[1].flow_mol_phase[p]
@@ -1012,32 +997,30 @@ class TestCommon(object):
         m = ConcreteModel()
 
         m.params = DummyParameterBlock(
-            default={
-                "components": {"c1": {}, "c2": {}, "c3": {}},
-                "phases": {
-                    "a": {"equation_of_state": DummyEoS},
-                    "b": {"equation_of_state": DummyEoS},
-                },
-                "state_definition": FpcTP,
-                "pressure_ref": 1e5,
-                "temperature_ref": 300,
-                "state_bounds": {
-                    "flow_mol_phase_comp": (0, 0.1, 0.2, pyunits.kmol / pyunits.s),
-                    "temperature": (522, 621, 720, pyunits.degR),
-                    "pressure": (1, 3, 5, pyunits.bar),
-                },
-                "base_units": {
-                    "time": pyunits.s,
-                    "length": pyunits.m,
-                    "mass": pyunits.kg,
-                    "amount": pyunits.mol,
-                    "temperature": pyunits.K,
-                },
-            }
+            components={"c1": {}, "c2": {}, "c3": {}},
+            phases={
+                "a": {"equation_of_state": DummyEoS},
+                "b": {"equation_of_state": DummyEoS},
+            },
+            state_definition=FpcTP,
+            pressure_ref=100000.0,
+            temperature_ref=300,
+            state_bounds={
+                "flow_mol_phase_comp": (0, 0.1, 0.2, pyunits.kmol / pyunits.s),
+                "temperature": (522, 621, 720, pyunits.degR),
+                "pressure": (1, 3, 5, pyunits.bar),
+            },
+            base_units={
+                "time": pyunits.s,
+                "length": pyunits.m,
+                "mass": pyunits.kg,
+                "amount": pyunits.mol,
+                "temperature": pyunits.K,
+            },
         )
 
         # Build state block
-        m.props = m.params.build_state_block([1], default={"defined_state": False})
+        m.props = m.params.build_state_block([1], defined_state=False)
 
         # Add necessary variables that would be built by other methods
         m.props[1].dens_mol_phase = Var(m.params.phase_list, initialize=1)
@@ -1048,7 +1031,7 @@ class TestCommon(object):
     @pytest.mark.unit
     def test_convert_vars(self, frame):
         # Check that all state var values and bounds were converted correctly
-        for (p, i) in frame.props[1].flow_mol_phase_comp:
+        for p, i in frame.props[1].flow_mol_phase_comp:
             assert frame.props[1].flow_mol_phase_comp[p, i].value == 100
             assert frame.props[1].flow_mol_phase_comp[p, i].lb == 0
             assert frame.props[1].flow_mol_phase_comp[p, i].ub == 200
@@ -1161,7 +1144,7 @@ class TestCommon(object):
     # Test General Methods
     @pytest.mark.unit
     def test_get_material_flow_terms(self, frame):
-        for (p, j) in frame.params._phase_component_set:
+        for p, j in frame.params._phase_component_set:
             assert str(frame.props[1].get_material_flow_terms(p, j)) == str(
                 frame.props[1].flow_mol_phase_comp[p, j]
             )
@@ -1178,7 +1161,7 @@ class TestCommon(object):
 
     @pytest.mark.unit
     def test_get_material_density_terms(self, frame):
-        for (p, j) in frame.params._phase_component_set:
+        for p, j in frame.params._phase_component_set:
             assert str(frame.props[1].get_material_density_terms(p, j)) == str(
                 frame.props[1]._material_density_term[p, j]
             )
@@ -1232,6 +1215,47 @@ class TestCommon(object):
             "Pressure": frame.props[1].pressure,
         }
 
+    @pytest.mark.unit
+    def test_cloning(self, frame):
+        """
+        This function tests modular properties are cloned correctly using pyomo's
+        clone method. In particular, it tests that all the methods point to variables
+        on the clone, and not on the original model.
+        """
+        blk = frame.clone()
+
+        # Test get_material_flow_terms method
+        for p, j in blk.params._phase_component_set:
+            assert (
+                blk.props[1].get_material_flow_terms(p, j).parent_block()
+                is blk.props[1]
+            )
+
+        # Test get_enthalpy_flow_terms method
+        for p in blk.params.phase_list:
+            assert (
+                blk.props[1].get_enthalpy_flow_terms(p).parent_block() is blk.props[1]
+            )
+
+        # Test get_material_density_terms
+        for p, j in blk.params._phase_component_set:
+            assert (
+                blk.props[1].get_material_density_terms(p, j).parent_block()
+                is blk.props[1]
+            )
+
+        # Test get_energy_Density_terms
+        for p in blk.params.phase_list:
+            assert (
+                blk.props[1].get_energy_density_terms(p).parent_block() is blk.props[1]
+            )
+
+        for i in blk.props[1].define_state_vars().values():
+            assert i.parent_block() is blk.props[1]
+
+        for i in blk.props[1].define_display_vars().values():
+            assert i.parent_block() is blk.props[1]
+
 
 # -----------------------------------------------------------------------------
 # Test example from Austin Ladshaw via WaterTAP project
@@ -1256,6 +1280,7 @@ thermo_config_no_rxn = {
                 "temperature_crit": (647, pyunits.K),
                 # Comes from Perry's Handbook:  p. 2-98
                 "dens_mol_liq_comp_coeff": {
+                    "eqn_type": 1,
                     "1": (5.459, pyunits.kmol * pyunits.m**-3),
                     "2": (0.30542, pyunits.dimensionless),
                     "3": (647.13, pyunits.K),
@@ -1330,6 +1355,7 @@ thermo_config_no_rxn = {
                 "pressure_crit": (73.825e5, pyunits.Pa),
                 "temperature_crit": (304.23, pyunits.K),
                 "dens_mol_liq_comp_coeff": {
+                    "eqn_type": 1,
                     "1": (0.000789, pyunits.kmol * pyunits.m**-3),
                     "2": (0.000956, pyunits.dimensionless),
                     "3": (500.78, pyunits.K),
@@ -1419,12 +1445,12 @@ thermo_config_no_rxn = {
 def test_phase_equilibrium_initialization():
     # Create a pyomo model object
     model = ConcreteModel()
-    model.fs = FlowsheetBlock(default={"dynamic": False})
+    model.fs = FlowsheetBlock(dynamic=False)
 
-    model.fs.thermo_params = GenericParameterBlock(default=thermo_config_no_rxn)
+    model.fs.thermo_params = GenericParameterBlock(**thermo_config_no_rxn)
 
     model.fs.state = model.fs.thermo_params.build_state_block(
-        model.fs.time, default={"defined_state": False}
+        model.fs.time, defined_state=False
     )
 
     model.fs.state[0].pressure.set_value(101325.0)

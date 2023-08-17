@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for methods from Reid, Prausnitz and Poling
@@ -18,7 +18,7 @@ All methods and parameters from:
 The Properties of Gases & Liquids, 3rd Edition
 Reid, Prausnitz and Polling, 1977, McGraw-Hill
 
-All parameter indicies based on conventions used by the source
+All parameter indices based on conventions used by the source
 
 Authors: Andrew Lee, Alejandro Garciadiego
 """
@@ -32,7 +32,7 @@ from pyomo.util.check_units import assert_units_equivalent
 
 from idaes.models.properties.modular_properties.pure.RPP3 import *
 from idaes.core.util.misc import add_object_reference
-from idaes.core.base.property_meta import PropertyClassMetadata
+from idaes.core.base.property_meta import PropertyClassMetadata, UnitSet
 
 
 @pytest.fixture()
@@ -61,11 +61,13 @@ def frame():
     m.config.include_enthalpy_of_formation = True
 
     m.meta_object = PropertyClassMetadata()
-    m.meta_object.default_units["temperature"] = pyunits.K
-    m.meta_object.default_units["mass"] = pyunits.kg
-    m.meta_object.default_units["length"] = pyunits.m
-    m.meta_object.default_units["time"] = pyunits.s
-    m.meta_object.default_units["amount"] = pyunits.mol
+    m.meta_object._default_units.set_units(
+        temperature=pyunits.K,
+        mass=pyunits.kg,
+        length=pyunits.m,
+        time=pyunits.s,
+        amount=pyunits.mol,
+    )
 
     def get_metadata(self):
         return m.meta_object
@@ -92,7 +94,7 @@ def frame():
 
 @pytest.mark.unit
 def test_cp_mol_ig_comp(frame):
-    cp_mol_ig_comp.build_parameters(frame.params)
+    RPP3.cp_mol_ig_comp.build_parameters(frame.params)
 
     assert isinstance(frame.params.cp_mol_ig_comp_coeff_A, Var)
     assert value(frame.params.cp_mol_ig_comp_coeff_A) == 7.701
@@ -103,7 +105,7 @@ def test_cp_mol_ig_comp(frame):
     assert isinstance(frame.params.cp_mol_ig_comp_coeff_D, Var)
     assert value(frame.params.cp_mol_ig_comp_coeff_D) == -0.859e-9
 
-    expr = cp_mol_ig_comp.return_expression(
+    expr = RPP3.cp_mol_ig_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
     assert value(expr) == pytest.approx(33.636, abs=1e-3)
@@ -116,14 +118,14 @@ def test_cp_mol_ig_comp(frame):
 
 @pytest.mark.unit
 def test_enth_mol_ig_comp(frame):
-    enth_mol_ig_comp.build_parameters(frame.params)
+    RPP3.enth_mol_ig_comp.build_parameters(frame.params)
 
     assert isinstance(frame.params.enth_mol_form_vap_comp_ref, Var)
     assert value(frame.params.enth_mol_form_vap_comp_ref) == (
         pytest.approx(-241822.6, abs=1e-1)
     )
 
-    expr = enth_mol_ig_comp.return_expression(
+    expr = RPP3.enth_mol_ig_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
     assert value(expr) == pytest.approx(-240983.962, abs=1e-3)
@@ -138,11 +140,11 @@ def test_enth_mol_ig_comp(frame):
 def test_enth_mol_ig_comp_no_form(frame):
     frame.config.include_enthalpy_of_formation = False
     frame.params.config.include_enthalpy_of_formation = False
-    enth_mol_ig_comp.build_parameters(frame.params)
+    RPP3.enth_mol_ig_comp.build_parameters(frame.params)
 
     assert not hasattr(frame.params, "enth_mol_form_vap_comp_ref")
 
-    expr = enth_mol_ig_comp.return_expression(
+    expr = RPP3.enth_mol_ig_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
     assert value(expr) == pytest.approx(838.686, abs=1e-3)
@@ -155,14 +157,14 @@ def test_enth_mol_ig_comp_no_form(frame):
 
 @pytest.mark.unit
 def test_entr_mol_ig_comp(frame):
-    entr_mol_ig_comp.build_parameters(frame.params)
+    RPP3.entr_mol_ig_comp.build_parameters(frame.params)
 
     assert isinstance(frame.params.entr_mol_form_vap_comp_ref, Var)
     assert value(frame.params.entr_mol_form_vap_comp_ref) == (
         pytest.approx(188.8, abs=1e-1)
     )
 
-    expr = entr_mol_ig_comp.return_expression(
+    expr = RPP3.entr_mol_ig_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
     assert value(expr) == pytest.approx(191.761, abs=1e-3)
@@ -175,7 +177,7 @@ def test_entr_mol_ig_comp(frame):
 
 @pytest.mark.unit
 def test_pressure_sat_comp(frame):
-    pressure_sat_comp.build_parameters(frame.params)
+    RPP3.pressure_sat_comp.build_parameters(frame.params)
 
     assert isinstance(frame.params.pressure_sat_comp_coeff_A, Var)
     assert value(frame.params.pressure_sat_comp_coeff_A) == 18.3036
@@ -184,7 +186,7 @@ def test_pressure_sat_comp(frame):
     assert isinstance(frame.params.pressure_sat_comp_coeff_C, Var)
     assert value(frame.params.pressure_sat_comp_coeff_C) == -46.13
 
-    expr = pressure_sat_comp.return_expression(
+    expr = RPP3.pressure_sat_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
     assert value(expr) == pytest.approx(3143.1125, abs=1e-3)
@@ -197,17 +199,17 @@ def test_pressure_sat_comp(frame):
 
 @pytest.mark.unit
 def test_pressure_sat_comp_dT(frame):
-    pressure_sat_comp.build_parameters(frame.params)
+    RPP3.pressure_sat_comp.build_parameters(frame.params)
 
-    expr = pressure_sat_comp.dT_expression(
+    expr = RPP3.pressure_sat_comp.dT_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
 
     delta = 1e-4 * pyunits.K
-    val = pressure_sat_comp.return_expression(
+    val = RPP3.pressure_sat_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
-    val_p = pressure_sat_comp.return_expression(
+    val_p = RPP3.pressure_sat_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature + delta
     )
 
@@ -217,10 +219,10 @@ def test_pressure_sat_comp_dT(frame):
 
     frame.props[1].temperature.value = 373.15
 
-    val = pressure_sat_comp.return_expression(
+    val = RPP3.pressure_sat_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature
     )
-    val_p = pressure_sat_comp.return_expression(
+    val_p = RPP3.pressure_sat_comp.return_expression(
         frame.props[1], frame.params, frame.props[1].temperature + delta
     )
 

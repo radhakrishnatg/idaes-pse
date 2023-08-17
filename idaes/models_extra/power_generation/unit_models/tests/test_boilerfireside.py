@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Unit operation model for a steam heater applicable to platen superheater
@@ -55,20 +55,18 @@ def build_unit():
     # Create a Concrete Model as the top level object
     m = pyo.ConcreteModel()
     # Add a flowsheet object to the model
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
     # Add property packages to flowsheet library
     m.fs.prop_fluegas = FlueGasParameterBlock()
     # boiler based on surrogate
     m.fs.unit = BoilerFireside(
-        default={
-            "dynamic": False,
-            "property_package": m.fs.prop_fluegas,
-            "calculate_PA_SA_flows": False,
-            "number_of_zones": 12,
-            "has_platen_superheater": True,
-            "has_roof_superheater": True,
-            "surrogate_dictionary": data_dic,
-        }
+        dynamic=False,
+        property_package=m.fs.prop_fluegas,
+        calculate_PA_SA_flows=False,
+        number_of_zones=12,
+        has_platen_superheater=True,
+        has_roof_superheater=True,
+        surrogate_dictionary=data_dic,
     )
     return m
 
@@ -237,20 +235,18 @@ def build_unit_option2():
     # Create a Concrete Model as the top level object
     m = pyo.ConcreteModel()
     # Add a flowsheet object to the model
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
     # Add property packages to flowsheet library
     m.fs.prop_fluegas = FlueGasParameterBlock()
     # boiler based on surrogate
     m.fs.unit = BoilerFireside(
-        default={
-            "dynamic": False,
-            "property_package": m.fs.prop_fluegas,
-            "calculate_PA_SA_flows": True,
-            "number_of_zones": 12,
-            "has_platen_superheater": True,
-            "has_roof_superheater": True,
-            "surrogate_dictionary": data_dic,
-        }
+        dynamic=False,
+        property_package=m.fs.prop_fluegas,
+        calculate_PA_SA_flows=True,
+        number_of_zones=12,
+        has_platen_superheater=True,
+        has_roof_superheater=True,
+        surrogate_dictionary=data_dic,
     )
     return m
 

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for CLC heterogeneous reaction block; tests for construction and solve
@@ -48,33 +48,29 @@ solver = get_solver()
 @pytest.fixture(scope="class")
 def rxn_prop():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # Set up thermo props and reaction props
     m.fs.solid_properties = SolidPhaseParameterBlock()
     m.fs.solid_state_block = m.fs.solid_properties.build_state_block(
-        [0], default={"parameters": m.fs.solid_properties, "defined_state": True}
+        [0], parameters=m.fs.solid_properties, defined_state=True
     )
 
     m.fs.gas_properties = GasPhaseParameterBlock()
     m.fs.gas_state_block = m.fs.gas_properties.build_state_block(
-        [0], default={"parameters": m.fs.gas_properties, "defined_state": True}
+        [0], parameters=m.fs.gas_properties, defined_state=True
     )
 
     m.fs.reactions = HeteroReactionParameterBlock(
-        default={
-            "solid_property_package": m.fs.solid_properties,
-            "gas_property_package": m.fs.gas_properties,
-        }
+        solid_property_package=m.fs.solid_properties,
+        gas_property_package=m.fs.gas_properties,
     )
     m.fs.unit = m.fs.reactions.reaction_block_class(
         [0],
-        default={
-            "parameters": m.fs.reactions,
-            "solid_state_block": m.fs.solid_state_block,
-            "gas_state_block": m.fs.gas_state_block,
-            "has_equilibrium": False,
-        },
+        parameters=m.fs.reactions,
+        solid_state_block=m.fs.solid_state_block,
+        gas_state_block=m.fs.gas_state_block,
+        has_equilibrium=False,
     )
 
     # Fix required variables to make reaction model square

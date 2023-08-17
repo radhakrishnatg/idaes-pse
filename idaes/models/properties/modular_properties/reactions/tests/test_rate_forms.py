@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for rate forms
@@ -37,23 +37,21 @@ def test_power_law_rate_no_order():
     m.thermo = m.pparams.build_state_block([1])
 
     m.rparams = GenericReactionParameterBlock(
-        default={
-            "property_package": m.pparams,
-            "base_units": {
-                "time": pyunits.s,
-                "mass": pyunits.kg,
-                "amount": pyunits.mol,
-                "length": pyunits.m,
-                "temperature": pyunits.K,
-            },
-            "rate_reactions": {
-                "r1": {
-                    "stoichiometry": {("p1", "c1"): -1, ("p1", "c2"): 2},
-                    "rate_form": power_law_rate,
-                    "concentration_form": ConcentrationForm.moleFraction,
-                }
-            },
-        }
+        property_package=m.pparams,
+        base_units={
+            "time": pyunits.s,
+            "mass": pyunits.kg,
+            "amount": pyunits.mol,
+            "length": pyunits.m,
+            "temperature": pyunits.K,
+        },
+        rate_reactions={
+            "r1": {
+                "stoichiometry": {("p1", "c1"): -1, ("p1", "c2"): 2},
+                "rate_form": power_law_rate,
+                "concentration_form": ConcentrationForm.moleFraction,
+            }
+        },
     )
 
     # Create a dummy state block
@@ -103,31 +101,29 @@ def test_power_law_rate_with_order():
     m.thermo = m.pparams.build_state_block([1])
 
     m.rparams = GenericReactionParameterBlock(
-        default={
-            "property_package": m.pparams,
-            "base_units": {
-                "time": pyunits.s,
-                "mass": pyunits.kg,
-                "amount": pyunits.mol,
-                "length": pyunits.m,
-                "temperature": pyunits.K,
-            },
-            "rate_reactions": {
-                "r1": {
-                    "stoichiometry": {("p1", "c1"): -1, ("p1", "c2"): 2},
-                    "rate_form": power_law_rate,
-                    "concentration_form": ConcentrationForm.moleFraction,
-                    "parameter_data": {
-                        "reaction_order": {
-                            ("p1", "c1"): 1,
-                            ("p1", "c2"): 2,
-                            ("p2", "c1"): 3,
-                            ("p2", "c2"): 4,
-                        }
-                    },
-                }
-            },
-        }
+        property_package=m.pparams,
+        base_units={
+            "time": pyunits.s,
+            "mass": pyunits.kg,
+            "amount": pyunits.mol,
+            "length": pyunits.m,
+            "temperature": pyunits.K,
+        },
+        rate_reactions={
+            "r1": {
+                "stoichiometry": {("p1", "c1"): -1, ("p1", "c2"): 2},
+                "rate_form": power_law_rate,
+                "concentration_form": ConcentrationForm.moleFraction,
+                "parameter_data": {
+                    "reaction_order": {
+                        ("p1", "c1"): 1,
+                        ("p1", "c2"): 2,
+                        ("p2", "c1"): 3,
+                        ("p2", "c2"): 4,
+                    }
+                },
+            }
+        },
     )
 
     # Create a dummy state block

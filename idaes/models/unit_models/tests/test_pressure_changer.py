@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for Pressure Changer unit model.
@@ -16,7 +16,6 @@ Tests for Pressure Changer unit model.
 Author: Andrew Lee, Emmanuel Ogbe
 """
 import pytest
-from io import StringIO
 
 from pyomo.environ import (
     check_optimal_termination,
@@ -27,6 +26,7 @@ from pyomo.environ import (
     Var,
 )
 from pyomo.util.check_units import assert_units_consistent, assert_units_equivalent
+from pyomo.core.expr.calculus.derivatives import differentiate
 
 from idaes.core import (
     FlowsheetBlock,
@@ -42,6 +42,7 @@ from idaes.models.unit_models.pressure_changer import (
     Compressor,
     Pump,
     ThermodynamicAssumption,
+    IsentropicPressureChangerInitializer,
 )
 
 from idaes.models.properties.activity_coeff_models.BTX_activity_coeff_VLE import (
@@ -62,6 +63,11 @@ from idaes.core.util.testing import PhysicalParameterTestBlock, initialization_t
 from idaes.core.util.exceptions import BalanceTypeNotSupportedError, InitializationError
 from idaes.core.util import scaling as iscale
 from idaes.core.solvers import get_solver
+from idaes.core.initialization import (
+    BlockTriangularizationInitializer,
+    SingleControlVolumeUnitInitializer,
+    InitializationStatus,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -79,11 +85,11 @@ class TestPressureChanger(object):
     @pytest.mark.unit
     def test_config(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
-        m.fs.unit = PressureChanger(default={"property_package": m.fs.properties})
+        m.fs.unit = PressureChanger(property_package=m.fs.properties)
 
         # Check unit config arguments
         assert len(m.fs.unit.config) == 12
@@ -101,14 +107,16 @@ class TestPressureChanger(object):
         )
         assert m.fs.unit.config.property_package is m.fs.properties
 
+        assert m.fs.unit.default_initializer is SingleControlVolumeUnitInitializer
+
     @pytest.mark.unit
     def test_dynamic_build(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": True, "time_units": units.s})
+        m.fs = FlowsheetBlock(dynamic=True, time_units=units.s)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
-        m.fs.unit = PressureChanger(default={"property_package": m.fs.properties})
+        m.fs.unit = PressureChanger(property_package=m.fs.properties)
         iscale.calculate_scaling_factors(m)
 
         assert hasattr(m.fs.unit, "volume")
@@ -116,15 +124,13 @@ class TestPressureChanger(object):
     @pytest.mark.unit
     def test_pump(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.pump,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.pump,
         )
         iscale.calculate_scaling_factors(m)
 
@@ -133,31 +139,27 @@ class TestPressureChanger(object):
     @pytest.mark.unit
     def test_adiabatic(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.adiabatic,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.adiabatic,
         )
         iscale.calculate_scaling_factors(m)
 
     @pytest.mark.unit
     def test_isentropic_comp_phase_balances(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                "material_balance_type": MaterialBalanceType.componentPhase,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+            material_balance_type=MaterialBalanceType.componentPhase,
         )
         iscale.calculate_scaling_factors(m)
 
@@ -167,16 +169,14 @@ class TestPressureChanger(object):
     @pytest.mark.unit
     def test_isentropic_comp_total_balances(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                "material_balance_type": MaterialBalanceType.componentTotal,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+            material_balance_type=MaterialBalanceType.componentTotal,
         )
         iscale.calculate_scaling_factors(m)
 
@@ -186,49 +186,43 @@ class TestPressureChanger(object):
     @pytest.mark.unit
     def test_isentropic_total_balances(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         with pytest.raises(BalanceTypeNotSupportedError):
             m.fs.unit = PressureChanger(
-                default={
-                    "property_package": m.fs.properties,
-                    "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                    "material_balance_type": MaterialBalanceType.total,
-                }
+                property_package=m.fs.properties,
+                thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+                material_balance_type=MaterialBalanceType.total,
             )
 
     @pytest.mark.unit
     def test_isentropic_total_element_balances(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         with pytest.raises(BalanceTypeNotSupportedError):
             m.fs.unit = PressureChanger(
-                default={
-                    "property_package": m.fs.properties,
-                    "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                    "material_balance_type": MaterialBalanceType.elementTotal,
-                }
+                property_package=m.fs.properties,
+                thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+                material_balance_type=MaterialBalanceType.elementTotal,
             )
 
     @pytest.mark.unit
     def test_isentropic_material_balances_none(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         with pytest.raises(BalanceTypeNotSupportedError):
             m.fs.unit = PressureChanger(
-                default={
-                    "property_package": m.fs.properties,
-                    "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                    "material_balance_type": MaterialBalanceType.none,
-                }
+                property_package=m.fs.properties,
+                thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+                material_balance_type=MaterialBalanceType.none,
             )
 
 
@@ -237,15 +231,13 @@ class TestBTX_isothermal(object):
     @pytest.fixture(scope="class")
     def btx(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.properties = BTXParameterBlock(default={"valid_phase": "Liq"})
+        m.fs.properties = BTXParameterBlock(valid_phase="Liq")
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isothermal,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.isothermal,
         )
 
         m.fs.unit.inlet.flow_mol[0].fix(5)  # mol/s
@@ -366,16 +358,14 @@ class TestIAPWS(object):
     @pytest.fixture(scope="class")
     def iapws(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = iapws95.Iapws95ParameterBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                "compressor": True,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+            compressor=True,
         )
 
         m.fs.unit.inlet.flow_mol[0].fix(100)
@@ -391,16 +381,14 @@ class TestIAPWS(object):
     @pytest.fixture(scope="class")
     def iapws_turb(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = iapws95.Iapws95ParameterBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                "compressor": False,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.isentropic,
+            compressor=False,
         )
         iscale.calculate_scaling_factors(m)
         return m
@@ -533,7 +521,7 @@ class TestIAPWS(object):
     def test_verify(self, iapws_turb):
         iapws = iapws_turb
         # Verify the turbine results against 3 known test cases
-        # Case Data (90% isentropic efficency)
+        # Case Data (90% isentropic efficiency)
         cases = {
             "F": (1000, 1000, 1000),  # mol/s
             "Tin": (500, 800, 400),  # K
@@ -608,16 +596,14 @@ class TestSaponification(object):
     @pytest.fixture(scope="class")
     def sapon(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = SaponificationParameterBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.pump,
-                "compressor": False,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.pump,
+            compressor=False,
         )
 
         m.fs.unit.inlet.flow_vol[0].fix(1e-3)
@@ -727,14 +713,17 @@ class TestSaponification(object):
         assert (
             abs(
                 value(
-                    sapon.fs.unit.outlet.flow_vol[0]
-                    * sapon.fs.properties.dens_mol
-                    * sapon.fs.properties.cp_mol
-                    * (
-                        sapon.fs.unit.inlet.temperature[0]
-                        - sapon.fs.unit.outlet.temperature[0]
+                    (
+                        sapon.fs.unit.outlet.flow_vol[0]
+                        * sapon.fs.properties.dens_mol
+                        * sapon.fs.properties.cp_mol
+                        * (
+                            sapon.fs.unit.inlet.temperature[0]
+                            - sapon.fs.unit.outlet.temperature[0]
+                        )
+                        + sapon.fs.unit.work_mechanical[0]
                     )
-                    + sapon.fs.unit.work_mechanical[0]
+                    / sapon.fs.unit.work_mechanical[0]
                 )
             )
             <= 1e-4
@@ -759,11 +748,11 @@ class TestTurbine(object):
     @pytest.mark.unit
     def test_config(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
-        m.fs.unit = Turbine(default={"property_package": m.fs.properties})
+        m.fs.unit = Turbine(property_package=m.fs.properties)
         iscale.calculate_scaling_factors(m)
 
         assert isinstance(m.fs.unit, PressureChangerData)
@@ -785,16 +774,18 @@ class TestTurbine(object):
 
         assert_units_consistent(m.fs.unit)
 
+        assert m.fs.unit.default_initializer is IsentropicPressureChangerInitializer
+
 
 class TestCompressor(object):
     @pytest.mark.unit
     def test_config(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
-        m.fs.unit = Compressor(default={"property_package": m.fs.properties})
+        m.fs.unit = Compressor(property_package=m.fs.properties)
         iscale.calculate_scaling_factors(m)
 
         assert isinstance(m.fs.unit, PressureChangerData)
@@ -816,16 +807,18 @@ class TestCompressor(object):
 
         assert_units_consistent(m.fs.unit)
 
+        assert m.fs.unit.default_initializer is IsentropicPressureChangerInitializer
+
 
 class TestPump(object):
     @pytest.mark.unit
     def test_config(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
-        m.fs.unit = Pump(default={"property_package": m.fs.properties})
+        m.fs.unit = Pump(property_package=m.fs.properties)
         iscale.calculate_scaling_factors(m)
 
         assert isinstance(m.fs.unit, PressureChangerData)
@@ -844,19 +837,18 @@ class TestPump(object):
 
         assert_units_consistent(m.fs.unit)
 
+        assert m.fs.unit.default_initializer is SingleControlVolumeUnitInitializer
+
     @pytest.mark.unit
     def test_pump_work_term_added_w_energybalancetype_none(self):
         # Check that work term is created when energy balance type none
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         m.fs.unit = Pump(
-            default={
-                "property_package": m.fs.properties,
-                "energy_balance_type": EnergyBalanceType.none,
-            }
+            property_package=m.fs.properties, energy_balance_type=EnergyBalanceType.none
         )
 
         assert m.fs.unit.config.energy_balance_type == EnergyBalanceType.none
@@ -866,16 +858,14 @@ class TestPump(object):
     @pytest.mark.unit
     def test_pressure_changer_work_term_added_w_energybalancetype_none(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = PhysicalParameterTestBlock()
 
         m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.pump,
-                "energy_balance_type": EnergyBalanceType.none,
-            }
+            property_package=m.fs.properties,
+            thermodynamic_assumption=ThermodynamicAssumption.pump,
+            energy_balance_type=EnergyBalanceType.none,
         )
         assert hasattr(m.fs.unit.control_volume, "work")
         assert hasattr(m.fs.unit, "work_mechanical")
@@ -883,126 +873,11 @@ class TestPump(object):
 
 @pytest.mark.skipif(not iapws95.iapws95_available(), reason="IAPWS not available")
 @pytest.mark.skipif(solver is None, reason="Solver not available")
-class Test_costing(object):
-    @pytest.mark.component
-    def test_pump(self):
-        m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
-        m.fs.properties = iapws95.Iapws95ParameterBlock()
-        m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.pump,
-                "compressor": True,
-            }
-        )
-        # set inputs
-        m.fs.unit.inlet.flow_mol[0].fix(10000)
-        m.fs.unit.inlet.enth_mol[0].fix(4000)
-        m.fs.unit.inlet.pressure[0].fix(101325)
-        m.fs.unit.deltaP.fix(50000)
-        m.fs.unit.efficiency_pump.fix(0.9)
-        iscale.calculate_scaling_factors(m)
-
-        assert degrees_of_freedom(m) == 0
-
-        m.fs.unit.get_costing(
-            pump_type="centrifugal",
-            Mat_factor="nickel",
-            pump_motor_type_factor="enclosed",
-        )
-
-        m.fs.unit.initialize()
-        # check costing block initialization
-        assert m.fs.unit.costing.purchase_cost.value == pytest.approx(
-            70115.019, abs=1e-2
-        )
-
-        assert_units_consistent(m.fs.unit)
-
-        solver.solve(m, tee=True)
-        assert m.fs.unit.costing.purchase_cost.value == pytest.approx(70115.0, 1e-5)
-
-    @pytest.mark.component
-    def test_compressor(self):
-        m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
-        m.fs.properties = iapws95.Iapws95ParameterBlock()
-        m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                "compressor": True,
-            }
-        )
-        # set inputs
-        m.fs.unit.inlet.flow_mol[0].fix(10000)
-        m.fs.unit.inlet.enth_mol[0].fix(4000)
-        m.fs.unit.inlet.pressure[0].fix(101325)
-        m.fs.unit.deltaP.fix(500000)
-        m.fs.unit.efficiency_isentropic.fix(0.9)
-        iscale.set_scaling_factor(m.fs.unit.control_volume.work[0], 1e-5)
-        iscale.calculate_scaling_factors(m)
-
-        assert degrees_of_freedom(m) == 0
-        m.fs.unit.get_costing(mover_type="compressor")
-        m.fs.unit.initialize()
-        results = solver.solve(m)
-        # Check for optimal solution
-        assert check_optimal_termination(results)
-
-        assert value(m.fs.unit.control_volume.work[0]) == pytest.approx(
-            101410.4, rel=1e-5
-        )
-
-        assert m.fs.unit.costing.purchase_cost.value == pytest.approx(334598, rel=1e-5)
-
-        assert_units_consistent(m.fs.unit)
-
-        solver.solve(m, tee=True)
-        assert m.fs.unit.costing.purchase_cost.value == pytest.approx(334598, rel=1e-5)
-
-    @pytest.mark.component
-    def test_turbine(self):
-        m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
-        m.fs.properties = iapws95.Iapws95ParameterBlock()
-        m.fs.unit = PressureChanger(
-            default={
-                "property_package": m.fs.properties,
-                "thermodynamic_assumption": ThermodynamicAssumption.isentropic,
-                "compressor": False,
-            }
-        )
-        # set inputs
-        m.fs.unit.inlet.flow_mol[0].fix(1000)  # mol/s
-        Tin = 500  # K
-        Pin = 1000000  # Pa
-        Pout = 700000  # Pa
-        hin = iapws95.htpx(Tin * units.K, Pin * units.Pa)
-        m.fs.unit.inlet.enth_mol[0].fix(hin)
-        m.fs.unit.inlet.pressure[0].fix(Pin)
-
-        m.fs.unit.deltaP.fix(Pout - Pin)
-        m.fs.unit.efficiency_isentropic.fix(0.9)
-        # build costing block before initializing the unit
-        m.fs.unit.get_costing()
-
-        m.fs.unit.initialize()
-        # check costing initialization is working
-        assert m.fs.unit.costing.purchase_cost.value == pytest.approx(213199, 1e-5)
-
-        assert degrees_of_freedom(m) == 0
-
-        assert_units_consistent(m.fs.unit)
-
-        solver.solve(m, tee=True)
-        assert m.fs.unit.costing.purchase_cost.value == pytest.approx(213199, 1e-5)
-
+class TestTurbinePerformance(object):
     @pytest.mark.component
     def test_turbine_performance_way1(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
         m.fs.properties = iapws95.Iapws95ParameterBlock()
 
         def perf_callback(b):
@@ -1025,11 +900,9 @@ class Test_costing(object):
                 )
 
         m.fs.unit = Turbine(
-            default={
-                "property_package": m.fs.properties,
-                "support_isentropic_performance_curves": True,
-                "isentropic_performance_curves": {"build_callback": perf_callback},
-            }
+            property_package=m.fs.properties,
+            support_isentropic_performance_curves=True,
+            isentropic_performance_curves={"build_callback": perf_callback},
         )
 
         # set inputs
@@ -1052,13 +925,10 @@ class Test_costing(object):
     @pytest.mark.component
     def test_turbine_performance_way2(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
         m.fs.properties = iapws95.Iapws95ParameterBlock()
         m.fs.unit = Turbine(
-            default={
-                "property_package": m.fs.properties,
-                "support_isentropic_performance_curves": True,
-            }
+            property_package=m.fs.properties, support_isentropic_performance_curves=True
         )
         unit_hd = units.J / units.kg
         unit_vflw = units.m**3 / units.s
@@ -1094,3 +964,84 @@ class Test_costing(object):
 
         assert value(m.fs.unit.efficiency_isentropic[0]) == pytest.approx(0.9, rel=1e-3)
         assert value(m.fs.unit.deltaP[0]) == pytest.approx(-3e5, rel=1e-3)
+
+
+class TestInitializersTurbine1:
+    @pytest.fixture
+    def model(self):
+        m = ConcreteModel()
+        m.fs = FlowsheetBlock(dynamic=False)
+        m.fs.properties = iapws95.Iapws95ParameterBlock()
+
+        def perf_callback(b):
+            unit_hd = units.J / units.kg
+            unit_vflw = units.m**3 / units.s
+
+            @b.Constraint(m.fs.time)
+            def pc_isen_eff_eqn(b, t):
+                prnt = b.parent_block()
+                vflw = prnt.control_volume.properties_in[t].flow_vol
+                return prnt.efficiency_isentropic[t] == 0.9 / 3.975 * vflw / unit_vflw
+
+            @b.Constraint(m.fs.time)
+            def pc_isen_head_eqn(b, t):
+                prnt = b.parent_block()
+                vflw = prnt.control_volume.properties_in[t].flow_vol
+                return (
+                    b.head_isentropic[t] / 1000
+                    == -75530.8 / 3.975 / 1000 * vflw / unit_vflw * unit_hd
+                )
+
+        m.fs.unit = Turbine(
+            property_package=m.fs.properties,
+            support_isentropic_performance_curves=True,
+            isentropic_performance_curves={"build_callback": perf_callback},
+        )
+
+        # set inputs
+        m.fs.unit.inlet.flow_mol[0].set_value(1000)  # mol/s
+        Tin = 500  # K
+        Pin = 1000000  # Pa
+        hin = value(iapws95.htpx(Tin * units.K, Pin * units.Pa))
+        m.fs.unit.inlet.enth_mol[0].set_value(hin)
+        m.fs.unit.inlet.pressure[0].set_value(Pin)
+
+        return m
+
+    @pytest.mark.component
+    def test_isentropic(self, model):
+        initializer = IsentropicPressureChangerInitializer()
+        initializer.initialize(model.fs.unit)
+
+        assert initializer.summary[model.fs.unit]["status"] == InitializationStatus.Ok
+
+        assert value(model.fs.unit.efficiency_isentropic[0]) == pytest.approx(
+            0.9, rel=1e-3
+        )
+        assert value(model.fs.unit.deltaP[0]) == pytest.approx(-3e5, rel=1e-3)
+
+        assert not model.fs.unit.inlet.flow_mol[0].fixed
+        assert not model.fs.unit.inlet.enth_mol[0].fixed
+        assert not model.fs.unit.inlet.pressure[0].fixed
+
+    @pytest.mark.component
+    def test_block_triangularization(self, model):
+        # Need to use reverse_numeric differentiation due to ExternalFunctions
+        initializer = BlockTriangularizationInitializer(
+            constraint_tolerance=2e-5,
+            calculate_variable_options={
+                "diff_mode": differentiate.Modes.reverse_numeric
+            },
+        )
+        initializer.initialize(model.fs.unit)
+
+        assert initializer.summary[model.fs.unit]["status"] == InitializationStatus.Ok
+
+        assert value(model.fs.unit.efficiency_isentropic[0]) == pytest.approx(
+            0.9, rel=1e-3
+        )
+        assert value(model.fs.unit.deltaP[0]) == pytest.approx(-3e5, rel=1e-3)
+
+        assert not model.fs.unit.inlet.flow_mol[0].fixed
+        assert not model.fs.unit.inlet.enth_mol[0].fixed
+        assert not model.fs.unit.inlet.pressure[0].fixed

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 
 __author__ = "Douglas Allan"
@@ -75,19 +75,11 @@ def common_components(nt, nz, nx):
 @pytest.fixture
 def modelNoHoldup():
     m = pyo.ConcreteModel()
-    m.fs = FlowsheetBlock(
-        default={
-            "dynamic": False,
-            "time_set": [0, 1],
-            "time_units": pyo.units.s,
-        }
-    )
+    m.fs = FlowsheetBlock(dynamic=False, time_set=[0, 1], time_units=pyo.units.s)
     m.fs.slab = soc.SocConductiveSlab(
-        default={
-            "has_holdup": False,
-            "control_volume_zfaces": np.linspace(0, 1, 4).tolist(),
-            "control_volume_xfaces": np.linspace(0, 1, 5).tolist(),
-        }
+        has_holdup=False,
+        control_volume_zfaces=np.linspace(0, 1, 4).tolist(),
+        control_volume_xfaces=np.linspace(0, 1, 5).tolist(),
     )
     slab = m.fs.slab
 
@@ -134,19 +126,17 @@ def modelHoldupNotDynamic():
     )
 
     m.fs.slab = soc.SocConductiveSlab(
-        default={
-            "has_holdup": True,
-            "control_volume_zfaces": zfaces,
-            "control_volume_xfaces": xfaces,
-            "length_z": m.fs.length_z,
-            "length_y": m.fs.length_y,
-            "current_density": m.fs.current_density,
-            "temperature_z": m.fs.temperature_z,
-            "temperature_deviation_x0": m.fs.temperature_deviation_x0,
-            "heat_flux_x0": m.fs.heat_flux_x0,
-            "temperature_deviation_x1": m.fs.temperature_deviation_x1,
-            "heat_flux_x1": m.fs.heat_flux_x1,
-        }
+        has_holdup=True,
+        control_volume_zfaces=zfaces,
+        control_volume_xfaces=xfaces,
+        length_z=m.fs.length_z,
+        length_y=m.fs.length_y,
+        current_density=m.fs.current_density,
+        temperature_z=m.fs.temperature_z,
+        temperature_deviation_x0=m.fs.temperature_deviation_x0,
+        heat_flux_x0=m.fs.heat_flux_x0,
+        temperature_deviation_x1=m.fs.temperature_deviation_x1,
+        heat_flux_x1=m.fs.heat_flux_x1,
     )
     m.fs.temperature_deviation_x0.fix(0)
     m.fs.heat_flux_x0.fix(0)

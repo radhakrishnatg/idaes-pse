@@ -1,22 +1,21 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
-Tests for ControlVolumeBlockData.
+Tests for Gibbs reactor.
 
 Author: Andrew Lee
 """
 import pytest
-from io import StringIO
 
 from pyomo.environ import (
     check_optimal_termination,
@@ -43,6 +42,11 @@ from idaes.core.util.model_statistics import (
 from idaes.core.util.testing import PhysicalParameterTestBlock, initialization_tester
 from idaes.core.solvers import get_solver
 from idaes.core.util.exceptions import ConfigurationError
+from idaes.core.initialization import (
+    BlockTriangularizationInitializer,
+    SingleControlVolumeUnitInitializer,
+    InitializationStatus,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -54,11 +58,11 @@ solver = get_solver()
 @pytest.mark.unit
 def test_config():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     m.fs.properties = PhysicalParameterTestBlock()
 
-    m.fs.unit = GibbsReactor(default={"property_package": m.fs.properties})
+    m.fs.unit = GibbsReactor(property_package=m.fs.properties)
 
     # Check unit config arguments
     assert len(m.fs.unit.config) == 9
@@ -81,13 +85,11 @@ def test_config():
 @pytest.mark.unit
 def test_inerts():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     m.fs.properties = PhysicalParameterTestBlock()
 
-    m.fs.unit = GibbsReactor(
-        default={"property_package": m.fs.properties, "inert_species": ["c1"]}
-    )
+    m.fs.unit = GibbsReactor(property_package=m.fs.properties, inert_species=["c1"])
 
     assert isinstance(m.fs.unit.inert_species_balance, Constraint)
     assert len(m.fs.unit.inert_species_balance) == 2
@@ -101,7 +103,7 @@ def test_inerts():
 @pytest.mark.unit
 def test_inerts_dependent_w_multi_phase():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     m.fs.properties = PhysicalParameterTestBlock()
     # Change elemental composition to introduce dependency
@@ -110,9 +112,7 @@ def test_inerts_dependent_w_multi_phase():
         "c2": {"H": 4, "He": 5, "Li": 0},
     }
 
-    m.fs.unit = GibbsReactor(
-        default={"property_package": m.fs.properties, "inert_species": ["c1"]}
-    )
+    m.fs.unit = GibbsReactor(property_package=m.fs.properties, inert_species=["c1"])
 
     assert isinstance(m.fs.unit.inert_species_balance, Constraint)
     assert len(m.fs.unit.inert_species_balance) == 2
@@ -126,7 +126,7 @@ def test_inerts_dependent_w_multi_phase():
 @pytest.mark.unit
 def test_inerts_dependent_w_single_phase():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     m.fs.properties = PhysicalParameterTestBlock()
     # Set phase list to only have 1 phase
@@ -137,9 +137,7 @@ def test_inerts_dependent_w_single_phase():
         "c2": {"H": 4, "He": 5, "Li": 0},
     }
 
-    m.fs.unit = GibbsReactor(
-        default={"property_package": m.fs.properties, "inert_species": ["c1"]}
-    )
+    m.fs.unit = GibbsReactor(property_package=m.fs.properties, inert_species=["c1"])
 
     assert isinstance(m.fs.unit.inert_species_balance, Constraint)
     assert len(m.fs.unit.inert_species_balance) == 0
@@ -152,7 +150,7 @@ def test_inerts_dependent_w_single_phase():
 @pytest.mark.unit
 def test_invalid_inert():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     m.fs.properties = PhysicalParameterTestBlock()
 
@@ -163,7 +161,7 @@ def test_invalid_inert():
         "component list.",
     ):
         m.fs.unit = GibbsReactor(
-            default={"property_package": m.fs.properties, "inert_species": ["foo"]}
+            property_package=m.fs.properties, inert_species=["foo"]
         )
 
 
@@ -172,16 +170,14 @@ class TestMethane(object):
     @pytest.fixture(scope="class")
     def methane(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.properties = MethaneCombustionParameterBlock()
 
         m.fs.unit = GibbsReactor(
-            default={
-                "property_package": m.fs.properties,
-                "has_heat_transfer": True,
-                "has_pressure_change": True,
-            }
+            property_package=m.fs.properties,
+            has_heat_transfer=True,
+            has_pressure_change=True,
         )
 
         m.fs.unit.inlet.flow_mol[0].fix(230.0)
@@ -449,3 +445,165 @@ class TestMethane(object):
                 "Pressure Change": methane.fs.unit.deltaP[0],
             }
         }
+
+
+class TestInitializers:
+    @pytest.fixture
+    def model(self):
+        m = ConcreteModel()
+        m.fs = FlowsheetBlock(dynamic=False)
+
+        m.fs.properties = MethaneCombustionParameterBlock()
+
+        m.fs.unit = GibbsReactor(
+            property_package=m.fs.properties,
+            has_heat_transfer=True,
+            has_pressure_change=True,
+        )
+
+        m.fs.unit.inlet.flow_mol[0].set_value(230.0)
+        m.fs.unit.inlet.mole_frac_comp[0, "H2"].set_value(0.0435)
+        m.fs.unit.inlet.mole_frac_comp[0, "N2"].set_value(0.6522)
+        m.fs.unit.inlet.mole_frac_comp[0, "O2"].set_value(0.1739)
+        m.fs.unit.inlet.mole_frac_comp[0, "CO2"].set_value(1e-5)
+        m.fs.unit.inlet.mole_frac_comp[0, "CH4"].set_value(0.1304)
+        m.fs.unit.inlet.mole_frac_comp[0, "CO"].set_value(1e-5)
+        m.fs.unit.inlet.mole_frac_comp[0, "H2O"].set_value(1e-5)
+        m.fs.unit.inlet.mole_frac_comp[0, "NH3"].set_value(1e-5)
+        m.fs.unit.inlet.temperature[0].set_value(1500.0)
+        m.fs.unit.inlet.pressure[0].set_value(101325.0)
+
+        m.fs.unit.outlet.temperature[0].fix(2844.38)
+        m.fs.unit.deltaP.fix(0)
+
+        return m
+
+    @pytest.mark.component
+    def test_general_hierarchical(self, model):
+        initializer = SingleControlVolumeUnitInitializer()
+        initializer.initialize(
+            model.fs.unit,
+            initial_guesses={
+                "control_volume.properties_out[0].pressure": 101325.0,
+                "control_volume.properties_out[0].flow_mol": 251.05,
+                "control_volume.properties_out[0].mole_frac_comp[CH4]": 1e-5,
+                "control_volume.properties_out[0].mole_frac_comp[CO]": 0.0916,
+                "control_volume.properties_out[0].mole_frac_comp[CO2]": 0.0281,
+                "control_volume.properties_out[0].mole_frac_comp[H2]": 0.1155,
+                "control_volume.properties_out[0].mole_frac_comp[H2O]": 0.1633,
+                "control_volume.properties_out[0].mole_frac_comp[N2]": 0.59478,
+                "control_volume.properties_out[0].mole_frac_comp[NH3]": 1e-5,
+                "control_volume.properties_out[0].mole_frac_comp[O2]": 0.0067,
+            },
+        )
+
+        assert initializer.summary[model.fs.unit]["status"] == InitializationStatus.Ok
+
+        assert pytest.approx(250.06, abs=1e-2) == value(
+            model.fs.unit.outlet.flow_mol[0]
+        )
+        assert pytest.approx(0.0, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "CH4"]
+        )
+        assert pytest.approx(0.0974, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "CO"]
+        )
+        assert pytest.approx(0.0226, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "CO2"]
+        )
+        assert pytest.approx(0.1030, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "H2"]
+        )
+        assert pytest.approx(0.1769, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "H2O"]
+        )
+        assert pytest.approx(0.5999, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "N2"]
+        )
+        assert pytest.approx(0.0, abs=1e-5) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "NH3"]
+        )
+        assert pytest.approx(0.0002, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "O2"]
+        )
+        assert pytest.approx(-7454077, abs=1e2) == value(model.fs.unit.heat_duty[0])
+        assert pytest.approx(101325.0, abs=1e-2) == value(
+            model.fs.unit.outlet.pressure[0]
+        )
+
+        assert not model.fs.unit.inlet.flow_mol[0].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "H2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "N2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "O2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "CO2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "CH4"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "CO"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "H2O"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "NH3"].fixed
+        assert not model.fs.unit.inlet.temperature[0].fixed
+        assert not model.fs.unit.inlet.pressure[0].fixed
+
+    @pytest.mark.component
+    def test_block_triangularization(self, model):
+        initializer = BlockTriangularizationInitializer(constraint_tolerance=2e-5)
+        initializer.initialize(
+            model.fs.unit,
+            initial_guesses={
+                "control_volume.properties_out[0].pressure": 101325.0,
+                "control_volume.properties_out[0].flow_mol": 251.05,
+                "control_volume.properties_out[0].mole_frac_comp[CH4]": 1e-5,
+                "control_volume.properties_out[0].mole_frac_comp[CO]": 0.0916,
+                "control_volume.properties_out[0].mole_frac_comp[CO2]": 0.0281,
+                "control_volume.properties_out[0].mole_frac_comp[H2]": 0.1155,
+                "control_volume.properties_out[0].mole_frac_comp[H2O]": 0.1633,
+                "control_volume.properties_out[0].mole_frac_comp[N2]": 0.59478,
+                "control_volume.properties_out[0].mole_frac_comp[NH3]": 1e-5,
+                "control_volume.properties_out[0].mole_frac_comp[O2]": 0.0067,
+            },
+        )
+
+        assert initializer.summary[model.fs.unit]["status"] == InitializationStatus.Ok
+
+        assert pytest.approx(250.06, abs=1e-2) == value(
+            model.fs.unit.outlet.flow_mol[0]
+        )
+        assert pytest.approx(0.0, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "CH4"]
+        )
+        assert pytest.approx(0.0974, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "CO"]
+        )
+        assert pytest.approx(0.0226, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "CO2"]
+        )
+        assert pytest.approx(0.1030, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "H2"]
+        )
+        assert pytest.approx(0.1769, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "H2O"]
+        )
+        assert pytest.approx(0.5999, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "N2"]
+        )
+        assert pytest.approx(0.0, abs=1e-5) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "NH3"]
+        )
+        assert pytest.approx(0.0002, abs=1e-4) == value(
+            model.fs.unit.outlet.mole_frac_comp[0, "O2"]
+        )
+        assert pytest.approx(-7454077, abs=1e2) == value(model.fs.unit.heat_duty[0])
+        assert pytest.approx(101325.0, abs=1e-2) == value(
+            model.fs.unit.outlet.pressure[0]
+        )
+
+        assert not model.fs.unit.inlet.flow_mol[0].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "H2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "N2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "O2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "CO2"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "CH4"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "CO"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "H2O"].fixed
+        assert not model.fs.unit.inlet.mole_frac_comp[0, "NH3"].fixed
+        assert not model.fs.unit.inlet.temperature[0].fixed
+        assert not model.fs.unit.inlet.pressure[0].fixed

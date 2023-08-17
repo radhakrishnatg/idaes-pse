@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """This uses the PID controller model to do a little more testing of the
 PETSc TS solver.  Specifically it tests constraints with an explicit time var."""
@@ -18,7 +18,6 @@ __author__ = "John Eslick"
 import pytest
 import pyomo.environ as pyo
 from pyomo.network import Arc
-import pyomo.dae as pyodae
 from idaes.core import FlowsheetBlock, MaterialBalanceType
 from idaes.models.unit_models import Heater, Valve
 from idaes.models.properties import iapws95
@@ -28,8 +27,6 @@ from idaes.models.control.controller import (
     ControllerType,
     ControllerMVBoundType,
 )
-import idaes.core.util.scaling as iscale
-from idaes.core.solvers import get_solver
 from idaes.core.solvers import petsc
 from idaes.core.util.math import smooth_max, smooth_min
 import numpy as np
@@ -43,7 +40,7 @@ def _valve_pressure_flow_cb(b):
 
     b.Cv = pyo.Var(
         initialize=0.1,
-        doc="Valve flow coefficent",
+        doc="Valve flow coefficient",
         units=umeta("amount") / umeta("time") / umeta("pressure"),
     )
     b.Cv.fix()
@@ -90,47 +87,40 @@ def create_model(
         time_set = [0, 3]
 
     m = pyo.ConcreteModel(name=model_name)
-    m.fs = FlowsheetBlock(default=fs_cfg)
+    m.fs = FlowsheetBlock(**fs_cfg)
     # Create a property parameter block
     m.fs.prop_water = iapws95.Iapws95ParameterBlock(
-        default={"phase_presentation": iapws95.PhaseType.LG}
+        phase_presentation=iapws95.PhaseType.LG
     )
     # Create the valve and tank models
     m.fs.valve_1 = Valve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "pressure_flow_callback": _valve_pressure_flow_cb,
-            "material_balance_type": MaterialBalanceType.componentTotal,
-            "property_package": m.fs.prop_water,
-        }
+        dynamic=False,
+        has_holdup=False,
+        pressure_flow_callback=_valve_pressure_flow_cb,
+        material_balance_type=MaterialBalanceType.componentTotal,
+        property_package=m.fs.prop_water,
     )
     m.fs.tank = Heater(
-        default={
-            "has_holdup": True,
-            "material_balance_type": MaterialBalanceType.componentTotal,
-            "property_package": m.fs.prop_water,
-        }
+        has_holdup=True,
+        material_balance_type=MaterialBalanceType.componentTotal,
+        property_package=m.fs.prop_water,
     )
     m.fs.valve_2 = Valve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "pressure_flow_callback": _valve_pressure_flow_cb,
-            "material_balance_type": MaterialBalanceType.componentTotal,
-            "property_package": m.fs.prop_water,
-        }
+        dynamic=False,
+        has_holdup=False,
+        pressure_flow_callback=_valve_pressure_flow_cb,
+        material_balance_type=MaterialBalanceType.componentTotal,
+        property_package=m.fs.prop_water,
     )
     # Add a controller
     m.fs.ctrl = PIDController(
-        default={
-            "process_var": m.fs.tank.control_volume.properties_out[:].pressure,
-            "manipulated_var": m.fs.valve_1.valve_opening,
-            "calculate_initial_integral": calc_integ,
-            "mv_bound_type": ControllerMVBoundType.SMOOTH_BOUND,
-            "type": ControllerType.PI,  # rather use PI, but testing all terms
-        }
+        process_var=m.fs.tank.control_volume.properties_out[:].pressure,
+        manipulated_var=m.fs.valve_1.valve_opening,
+        calculate_initial_integral=calc_integ,
+        mv_bound_type=ControllerMVBoundType.SMOOTH_BOUND,
+        controller_type=ControllerType.PI,
     )
+
     # The control volume block doesn't assume the two phases are in equilibrium
     # by default, so I'll make that assumption here, I don't actually expect
     # liquid to form but who knows. The phase_fraction in the control volume is
@@ -285,9 +275,9 @@ def test_petsc_with_pid_model():
         m.fs.tank.control_volume.energy_accumulation[m.fs.time.last(), "Vap"]
     ) == pytest.approx(pyo.value(der))
     der = (
-        m.fs.ctrl.integral_of_error[m.fs.time.last()]
-        - m.fs.ctrl.integral_of_error[m.fs.time.at(5)]
+        m.fs.ctrl.mv_integral_component[m.fs.time.last()]
+        - m.fs.ctrl.mv_integral_component[m.fs.time.at(5)]
     ) / (m.fs.time.last() - m.fs.time.at(5))
     assert pyo.value(
-        m.fs.ctrl.integral_of_error_dot[m.fs.time.last()]
+        m.fs.ctrl.mv_integral_component_dot[m.fs.time.last()]
     ) == pytest.approx(pyo.value(der))

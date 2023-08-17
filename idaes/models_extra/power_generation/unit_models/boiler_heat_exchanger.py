@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Power Plant IDAES heat exchanger model.
@@ -27,22 +27,23 @@ The main config arguments:
     - has radiation: True if model is used as a reheater or superheater unit
         Gas emissivity calculated (Gas temperature above 700 K)
 
-General assumtpions:
+General assumptions:
     - SI units (consistent with prop pack)
     - heat transfer calc U = f(Nu, Re, Pr)
     - Pressure drop tube and shell side (friction factor calc.)
 
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-class-docstring
 
 __author__ = "Boiler subsystem team (J Ma, M Zamarripa)"
 __version__ = "1.0.0"
 
 # Import Python libraries
-import logging
-from enum import Enum, EnumMeta
+from enum import Enum
 
 # Import Pyomo libraries
-from pyomo.common.config import ConfigBlock, ConfigValue, In, Bool
+from pyomo.common.config import ConfigValue, In
 
 # Additional import for the unit operation
 from pyomo.environ import (
@@ -54,31 +55,22 @@ from pyomo.environ import (
     log,
     PositiveReals,
     NonNegativeReals,
-    ExternalFunction,
     Reference,
     units as pyunits,
 )
 
 # Import IDAES cores
-from idaes.core import (
-    ControlVolume0DBlock,
-    declare_process_block_class,
-    MaterialBalanceType,
-    EnergyBalanceType,
-    MomentumBalanceType,
-    UnitModelBlockData,
-    useDefault,
-)
+from idaes.core import declare_process_block_class
 
-from idaes.core.util.config import is_physical_parameter_block, DefaultBool
 from idaes.core.util.misc import add_object_reference
 from idaes.core.util.constants import Constants as c
 from idaes.core.solvers import get_solver
-from idaes.core.util.functions import functions_lib
 import idaes.core.util.scaling as iscale
 import idaes.logger as idaeslog
-from idaes.core.util.exceptions import ConfigurationError, InitializationError
+from idaes.core.util.exceptions import ConfigurationError
 
+# These are convenience imports of methods from the base HX model
+# pylint: disable=W0611
 from idaes.models.unit_models.heat_exchanger import (
     HeatExchangerData,
     delta_temperature_lmtd_callback,
@@ -91,7 +83,7 @@ from idaes.models.unit_models.heat_exchanger import (
 
 
 # Set up logger
-_log = logging.getLogger(__name__)
+_log = idaeslog.getLogger(__name__)
 
 
 class TubeArrangement(Enum):
@@ -99,184 +91,10 @@ class TubeArrangement(Enum):
     staggered = 1
 
 
-class _DeprecateDeltaTMethod(EnumMeta):
-    # This is used to log a deprecation warning if someone uses DeltaTMethod
-    def __getattribute__(cls, name):
-        obj = super().__getattribute__(name)
-        if isinstance(obj, Enum):
-            _log.warning(
-                "'DeltaTMethod' is deprecated use 'HeatExchangerFlowPattern' "
-                "This will be removed in IDAES 3.0"
-            )
-        return obj
-
-
-class DeltaTMethod(Enum, metaclass=_DeprecateDeltaTMethod):
-    """DEPRECATED: use HeatExchangerFlowPattern instead"""
-
-    counterCurrent = HeatExchangerFlowPattern.countercurrent
-    coCurrent = HeatExchangerFlowPattern.cocurrent
-
-
-def delta_temperature_underwood_tune_callback(b):
-    """
-    This is a callback for a temperature difference expression to calculate
-    :math:`\Delta T` in the heat exchanger model using log-mean temperature
-    difference (LMTD) approximation given by Underwood (1970).  It can be
-    supplied to "delta_temperature_callback" HeatExchanger configuration option.
-    This uses a cube root function that works with negative numbers returning
-    the real negative root. This should always evaluate successfully.
-    """
-    _log.warning(
-        "DEPRECATED: delta_temperature_underwood_tune_callback will be "
-        "removed. Use another standard delta_temperature callback or "
-        "provide a custom callback.  This will be removed in IDAES 3.0."
-    )
-    dT1 = b.delta_temperature_in
-    dT2 = b.delta_temperature_out
-    temp_units = pyunits.get_units(dT1[dT1.index_set().first()])
-    b.lmtd_param_c1 = Var(initialize=0.3241)
-    b.lmtd_param_c2 = Var(initialize=1.99996)
-    b.lmtd_param_c1.fix()
-    b.lmtd_param_c2.fix()
-    c1 = b.lmtd_param_c1
-    c2 = b.lmtd_param_c2
-
-    @b.Expression(b.flowsheet().time)
-    def delta_temperature(b, t):
-        return (((dT1[t] / temp_units) ** c1 + (dT2[t] / temp_units) ** c1) / c2) ** (
-            1 / c1
-        ) * temp_units
-
-
 @declare_process_block_class("BoilerHeatExchanger")
 class BoilerHeatExchangerData(HeatExchangerData):
     CONFIG = HeatExchangerData.CONFIG(implicit=True)
-    CONFIG.declare(
-        "side_1_property_package",
-        ConfigValue(
-            default=None,
-            domain=is_physical_parameter_block,
-            description="DEPRECATED: Property package to use for control volume",
-            doc="""DEPRECATED (will be removed in 3.0): Property parameter block,
-**default** - useDefault.
-**Valid values:** {
-**useDefault** - use default package from parent model or flowsheet,
-**PhysicalParameterObject** - a PhysicalParameterBlock object.}""",
-        ),
-    )
-    CONFIG.declare(
-        "side_1_property_package_args",
-        ConfigBlock(
-            implicit=True,
-            description="DEPRECATED: Arguments for constructing property packages",
-            doc="""DEPRECATED (will be removed in 3.0): ConfigBlock to be passed to
-a property block(s) and used when constructing these,
-**default** - None.
-**Valid values:** {
-see property package for documentation.}""",
-        ),
-    )
-    CONFIG.declare(
-        "side_2_property_package",
-        ConfigValue(
-            default=None,
-            domain=is_physical_parameter_block,
-            description="DEPRECATED: Property package to use for control volume",
-            doc="""DEPRECATED (will be removed in 3.0): Property parameter block,
-**default** - useDefault.
-**Valid values:** {
-**useDefault** - use default package from parent model or flowsheet,
-**PhysicalParameterObject** - a PhysicalParameterBlock object.}""",
-        ),
-    )
-    CONFIG.declare(
-        "side_2_property_package_args",
-        ConfigBlock(
-            implicit=True,
-            description="DEPRECATED: Arguments for constructing property packages",
-            doc="""DEPRECATED (will be removed in 3.0): ConfigBlock to be passed
-to a property block(s) and used when constructing these,
-**default** - None.
-**Valid values:** {
-see property package for documentation.}""",
-        ),
-    )
-    CONFIG.declare(
-        "material_balance_type",
-        ConfigValue(
-            default=None,
-            domain=In(MaterialBalanceType),
-            description="DEPRECATED: Material balance construction flag",
-            doc="""DEPRECATED (will be removed in 3.0): Indicates type of
-material balance,
-**default** - MaterialBalanceType.componentPhase.
-**Valid values:** {
-**MaterialBalanceType.none** - exclude material balances,
-**MaterialBalanceType.componentPhase** - use phase component balances,
-**MaterialBalanceType.componentTotal** - use total component balances,
-**MaterialBalanceType.elementTotal** - use total element balances,
-**MaterialBalanceType.total** - use total material balance.}""",
-        ),
-    )
-    CONFIG.declare(
-        "energy_balance_type",
-        ConfigValue(
-            default=None,
-            domain=In(EnergyBalanceType),
-            description="DEPRECATED: Energy balance construction flag",
-            doc="""DEPRECATED(will be removed in 3.0): Type of energy balance,
-**default** - EnergyBalanceType.enthalpyTotal.
-**Valid values:** {
-**EnergyBalanceType.none** - exclude energy balances,
-**EnergyBalanceType.enthalpyTotal** - single ethalpy balance for material,
-**EnergyBalanceType.enthalpyPhase** - ethalpy balances for each phase,
-**EnergyBalanceType.energyTotal** - single energy balance for material,
-**EnergyBalanceType.energyPhase** - energy balances for each phase.}""",
-        ),
-    )
-    CONFIG.declare(
-        "momentum_balance_type",
-        ConfigValue(
-            default=None,
-            domain=In(MomentumBalanceType),
-            description="DEPRECATED: Momentum balance construction flag",
-            doc="""DEPRECATED (will be removed in 3.0): Type of momentum balance,
-**default** - MomentumBalanceType.pressureTotal.
-**Valid values:** {
-**MomentumBalanceType.none** - exclude momentum balances,
-**MomentumBalanceType.pressureTotal** - single pressure balance for material,
-**MomentumBalanceType.pressurePhase** - pressure balances for each phase,
-**MomentumBalanceType.momentumTotal** - single momentum balance for material,
-**MomentumBalanceType.momentumPhase** - momentum balances for each phase.}""",
-        ),
-    )
-    CONFIG.declare(
-        "has_pressure_change",
-        ConfigValue(
-            default=False,
-            domain=Bool,
-            description="Pressure change term construction flag",
-            doc="""Indicates whether pressure change terms should be
-constructed,
-**default** - False.
-**Valid values:** {
-**True** - include pressure change terms,
-**False** - exclude pressure change terms.}""",
-        ),
-    )
-    CONFIG.declare(
-        "delta_T_method",
-        ConfigValue(
-            default=None,
-            description="DEPRECATED: Flow configuration in unit to compute delta T",
-            doc="""DEPRECATED (will be removed in 3.0): Flag indicating flow
-arrangement to use for delta T
-**default** - DeltaTMethod.counterCurrent
-**Valid values:** {
-**DeltaTMethod.counterCurrent**}""",
-        ),
-    )
+
     CONFIG.declare(
         "tube_arrangement",
         ConfigValue(
@@ -287,7 +105,7 @@ arrangement to use for delta T
         ),
     )
     CONFIG.declare(
-        "side_1_water_phase",
+        "cold_side_water_phase",
         ConfigValue(
             default="Liq",
             domain=In(["Liq", "Vap"]),
@@ -300,91 +118,19 @@ arrangement to use for delta T
         ConfigValue(
             default=False,
             domain=In([False, True]),
-            description="Has side 2 gas radiation",
-            doc="Define if side 2 gas radiation is to be considered",
+            description="Has hot side gas radiation",
+            doc="Define if hot side gas radiation is to be considered",
         ),
     )
 
     def _process_config(self):
-        """Deal with old style config arguments by converting them to be
-        consitent with the generic heat exchanger.  Log a deprecation warning
-        for old style args.
         """
-        super()._process_config()
+        Check for boiler specific config arguments.
+        """
         config = self.config
-
-        if config.delta_T_method is not None:
-            _log.warning(
-                "Config item delta_T_method is deprecated use flow_pattern. Will be removed in IDAES 3.0."
-            )
-            if isinstance(config.delta_T_method, DeltaTMethod):
-                if config.delta_T_method == DeltaTMethod.coCurrent:
-                    config.flow_pattern = HeatExchangerFlowPattern.cocurrent
-                else:
-                    config.flow_pattern = HeatExchangerFlowPattern.countercurrent
-            else:
-                config.flow_pattern = config.delta_T_method
 
         if config.flow_pattern == HeatExchangerFlowPattern.crossflow:
             raise ConfigurationError("Boiler heat exchanger does not support crossflow")
-
-        if config.side_1_property_package is not None:
-            _log.warning(
-                "Config item side_1_property_package is deprecated. Will be removed in IDAES 3.0."
-            )
-            # For this side 1 is tube/cold side
-            config.cold_side_config.property_package = config.side_1_property_package
-
-        if config.side_2_property_package is not None:
-            _log.warning(
-                "Config item side_2_property_package is deprecated. Will be removed in IDAES 3.0."
-            )
-            # For this side 2 is shell/hot side
-            config.hot_side_config.property_package = config.side_2_property_package
-        if len(config.side_1_property_package_args) > 0:
-            _log.warning(
-                "Config item side_1_property_package_args is deprecated. Will be removed in IDAES 3.0."
-            )
-            # For this side 1 is tube/cold side
-            config.cold_side_config.property_package_args = (
-                config.side_1_property_package_args
-            )
-
-        if len(config.side_2_property_package_args) > 0:
-            _log.warning(
-                "Config item side_2_property_package_args is deprecated. Will be removed in IDAES 3.0."
-            )
-            # For this side 2 is shell/hot side
-            config.hot_side_config.property_package_args = (
-                config.side_2_property_package_args
-            )
-
-        if config.material_balance_type is not None:
-            _log.warning(
-                "Config item material_balance_type is deprecated. Will be removed in IDAES 3.0."
-            )
-            config.cold_side_config.material_balance_type = config.material_balance_type
-            config.hot_side_config.material_balance_type = config.material_balance_type
-
-        if config.energy_balance_type is not None:
-            _log.warning(
-                "Config item energy_balance_type is deprecated. Will be removed in IDAES 3.0."
-            )
-            config.cold_side_config.enrgy_balance_type = config.energy_balance_type
-            config.hot_side_config.energy_balance_type = config.energy_balance_type
-
-        if config.momentum_balance_type is not None:
-            _log.warning(
-                "Config item momentum_balance_type is deprecated. Will be removed in IDAES 3.0."
-            )
-            config.cold_side_config.momentum_balance_type = config.momentum_balance_type
-            config.hot_side_config.momentum_balance_type = config.momentum_balance_type
-
-        if config.has_pressure_change is not None:
-            config.cold_side_config.has_pressure_change = config.has_pressure_change
-            config.hot_side_config.has_pressure_change = config.has_pressure_change
-
-        config.side_1_is_hot = False
 
     def build(self):
         """
@@ -398,11 +144,12 @@ arrangement to use for delta T
         """
         # Call UnitModel.build to setup dynamics
         super().build()
+        self._process_config()
         self.deltaT_1 = Reference(self.delta_temperature_in)
         self.deltaT_2 = Reference(self.delta_temperature_out)
 
         self._set_geometry()
-        self.side_1_fluid_phase = self.config.side_1_water_phase
+        self.cold_side_fluid_phase = self.config.cold_side_water_phase
         # Construct performance equations
         self._make_performance()
 
@@ -540,13 +287,11 @@ arrangement to use for delta T
             return b.pitch_y / b.do_tube
 
         if self.config.has_holdup is True:
-            add_object_reference(self, "volume_side_1", self.side_1.volume)
-            add_object_reference(self, "volume_side_2", self.side_2.volume)
+            add_object_reference(self, "volume_cold_side", self.cold_side.volume)
+            add_object_reference(self, "volume_hot_side", self.hot_side.volume)
             # Total tube side valume
-            self.Constraint(doc="Total tube side volume")
-
-            def volume_side_1_eqn(b):
-                return b.volumne_side_1 == (
+            def volume_cold_side_eqn(b):
+                return b.volume_cold_side == (
                     0.25
                     * c.pi
                     * b.tube_di**2.0
@@ -555,12 +300,11 @@ arrangement to use for delta T
                     * b.tube_nrow
                 )
 
-            # Total shell side valume
-            self.Constraint(doc="Total shell side volume")
+            self.Constraint(doc="Total tube side volume", rule=volume_cold_side_eqn)
 
-            def volume_side_2_eqn(b):
+            def volume_hot_side_eqn(b):
                 return (
-                    b.volumne_side_2
+                    b.volume_hot_side
                     == b.tube_ncol * b.pitch_y * b.tube_length * b.tube_nrow * b.pitch_x
                     - 0.25
                     * c.pi
@@ -569,6 +313,9 @@ arrangement to use for delta T
                     * b.tube_ncol
                     * b.tube_nrow
                 )
+
+            # Total shell side volume
+            self.Constraint(doc="Total shell side volume", rule=volume_hot_side_eqn)
 
     def _make_performance(self):
         """
@@ -581,10 +328,11 @@ arrangement to use for delta T
             None
         """
         # Set references to balance terms at unit level
-        add_object_reference(self, "heat_duty", self.side_1.heat)
-        if self.config.has_pressure_change is True:
-            add_object_reference(self, "deltaP_tube", self.side_1.deltaP)
-            add_object_reference(self, "deltaP_shell", self.side_2.deltaP)
+        add_object_reference(self, "heat_duty", self.cold_side.heat)
+        if self.config.cold_side.has_pressure_change is True:
+            add_object_reference(self, "deltaP_tube", self.cold_side.deltaP)
+        if self.config.hot_side.has_pressure_change is True:
+            add_object_reference(self, "deltaP_shell", self.hot_side.deltaP)
 
         # Performance parameters and variables
         # Wall thermal conductivity
@@ -724,17 +472,17 @@ arrangement to use for delta T
                 # This is a surrogate model, so need to do units manually
                 X1 = (
                     (
-                        b.side_2.properties_in[t].temperature
-                        + b.side_2.properties_out[t].temperature
+                        b.hot_side.properties_in[t].temperature
+                        + b.hot_side.properties_out[t].temperature
                     )
                     / 2
                     / pyunits.K
                 )
                 X2 = b.mbl / pyunits.m
-                X3 = b.side_2.properties_in[t].pressure / pyunits.Pa
-                X4 = b.side_2.properties_in[t].mole_frac_comp["CO2"]
-                X5 = b.side_2.properties_in[t].mole_frac_comp["H2O"]
-                X6 = b.side_2.properties_in[t].mole_frac_comp["O2"]
+                X3 = b.hot_side.properties_in[t].pressure / pyunits.Pa
+                X4 = b.hot_side.properties_in[t].mole_frac_comp["CO2"]
+                X5 = b.hot_side.properties_in[t].mole_frac_comp["H2O"]
+                X6 = b.hot_side.properties_in[t].mole_frac_comp["O2"]
 
                 # Surrogate model fitted using rigorous calc. - 500 samples
                 # Wide operating range:
@@ -780,17 +528,17 @@ arrangement to use for delta T
                 # This is a surrogate model, so need to do units manually
                 X1 = (
                     (
-                        b.side_2.properties_in[t].temperature
-                        + b.side_2.properties_out[t].temperature
+                        b.hot_side.properties_in[t].temperature
+                        + b.hot_side.properties_out[t].temperature
                     )
                     / 2
                     / pyunits.K
                 )
                 X2 = b.mbl_div2 / pyunits.m
-                X3 = b.side_2.properties_in[t].pressure / pyunits.Pa
-                X4 = b.side_2.properties_in[t].mole_frac_comp["CO2"]
-                X5 = b.side_2.properties_in[t].mole_frac_comp["H2O"]
-                X6 = b.side_2.properties_in[t].mole_frac_comp["O2"]
+                X3 = b.hot_side.properties_in[t].pressure / pyunits.Pa
+                X4 = b.hot_side.properties_in[t].mole_frac_comp["CO2"]
+                X5 = b.hot_side.properties_in[t].mole_frac_comp["H2O"]
+                X6 = b.hot_side.properties_in[t].mole_frac_comp["O2"]
 
                 # Surrogate model fitted using rigorous calc. - 500 samples
                 # Wide operating range:
@@ -835,17 +583,17 @@ arrangement to use for delta T
                 # This is a surrogate model, so need to do units manually
                 X1 = (
                     (
-                        b.side_2.properties_in[t].temperature
-                        + b.side_2.properties_out[t].temperature
+                        b.hot_side.properties_in[t].temperature
+                        + b.hot_side.properties_out[t].temperature
                     )
                     / 2
                     / pyunits.K
                 )
                 X2 = b.mbl_mul2 / pyunits.m
-                X3 = b.side_2.properties_in[t].pressure / pyunits.Pa
-                X4 = b.side_2.properties_in[t].mole_frac_comp["CO2"]
-                X5 = b.side_2.properties_in[t].mole_frac_comp["H2O"]
-                X6 = b.side_2.properties_in[t].mole_frac_comp["O2"]
+                X3 = b.hot_side.properties_in[t].pressure / pyunits.Pa
+                X4 = b.hot_side.properties_in[t].mole_frac_comp["CO2"]
+                X5 = b.hot_side.properties_in[t].mole_frac_comp["H2O"]
+                X6 = b.hot_side.properties_in[t].mole_frac_comp["O2"]
 
                 # Surrogate model fitted using rigorous calc. 500 samples
                 # Wide operating range:
@@ -908,32 +656,32 @@ arrangement to use for delta T
                     == b.gas_gray_fraction[t] * b.gas_emissivity[t]
                 )
 
-            # equivalent convective heat transfer coefficent due to radiation
+            # equivalent convective heat transfer coefficient due to radiation
             @self.Constraint(
                 self.flowsheet().time,
                 doc="Equivalent convective heat transfer "
-                "coefficent due to radiation",
+                "coefficient due to radiation",
             )
             def hconv_shell_rad_eqn(b, t):
                 return b.hconv_shell_rad[t] == c.stefan_constant * b.frad_gas_shell[
                     t
                 ] * (
                     (
-                        b.side_2.properties_in[t].temperature
-                        + b.side_2.properties_out[t].temperature
+                        b.hot_side.properties_in[t].temperature
+                        + b.hot_side.properties_out[t].temperature
                     )
                     / 2
-                    + b.side_1.properties_in[t].temperature
+                    + b.cold_side.properties_in[t].temperature
                 ) * (
                     (
                         (
-                            b.side_2.properties_in[t].temperature
-                            + b.side_2.properties_out[t].temperature
+                            b.hot_side.properties_in[t].temperature
+                            + b.hot_side.properties_out[t].temperature
                         )
                         / 2
                     )
                     ** 2
-                    + b.side_1.properties_in[t].temperature ** 2
+                    + b.cold_side.properties_in[t].temperature ** 2
                 )
 
         # Tube side heat transfer coefficient and pressure drop
@@ -952,7 +700,7 @@ arrangement to use for delta T
             initialize=10000.0,
             doc="Reynolds number on tube side",
         )
-        if self.config.has_pressure_change is True:
+        if self.config.cold_side.has_pressure_change is True:
             # Friction factor on tube side
             self.friction_factor_tube = Var(
                 self.flowsheet().time,
@@ -992,8 +740,10 @@ arrangement to use for delta T
             return (
                 b.v_tube[t]
                 * b.area_flow_tube
-                * b.side_1.properties_in[t].dens_mol_phase[self.side_1_fluid_phase]
-                == b.side_1.properties_in[t].flow_mol
+                * b.cold_side.properties_in[t].dens_mol_phase[
+                    self.cold_side_fluid_phase
+                ]
+                == b.cold_side.properties_in[t].flow_mol
             )
 
         # Reynolds number
@@ -1003,13 +753,15 @@ arrangement to use for delta T
         def N_Re_tube_eqn(b, t):
             return (
                 b.N_Re_tube[t]
-                * b.side_1.properties_in[t].visc_d_phase[self.side_1_fluid_phase]
+                * b.cold_side.properties_in[t].visc_d_phase[self.cold_side_fluid_phase]
                 == b.tube_di
                 * b.v_tube[t]
-                * b.side_1.properties_in[t].dens_mass_phase[self.side_1_fluid_phase]
+                * b.cold_side.properties_in[t].dens_mass_phase[
+                    self.cold_side_fluid_phase
+                ]
             )
 
-        if self.config.has_pressure_change is True:
+        if self.config.cold_side.has_pressure_change is True:
             # Friction factor
             @self.Constraint(
                 self.flowsheet().time, doc="Darcy friction factor on tube side"
@@ -1028,7 +780,9 @@ arrangement to use for delta T
                 return (
                     b.deltaP_tube_friction[t]
                     == -0.5
-                    * b.side_1.properties_in[t].dens_mass_phase[self.side_1_fluid_phase]
+                    * b.cold_side.properties_in[t].dens_mass_phase[
+                        self.cold_side_fluid_phase
+                    ]
                     * b.v_tube[t] ** 2
                     * b.friction_factor_tube[t]
                     * b.tube_length
@@ -1045,7 +799,9 @@ arrangement to use for delta T
                 return (
                     b.deltaP_tube_uturn[t]
                     == -0.5
-                    * b.side_1.properties_in[t].dens_mass_phase[self.side_1_fluid_phase]
+                    * b.cold_side.properties_in[t].dens_mass_phase[
+                        self.cold_side_fluid_phase
+                    ]
                     * b.v_tube[t] ** 2
                     * b.k_loss_uturn
                 )
@@ -1062,11 +818,11 @@ arrangement to use for delta T
                     - b.delta_elevation
                     * c.acceleration_gravity
                     * (
-                        b.side_1.properties_in[t].dens_mass_phase[
-                            self.side_1_fluid_phase
+                        b.cold_side.properties_in[t].dens_mass_phase[
+                            self.cold_side_fluid_phase
                         ]
-                        + b.side_1.properties_out[t].dens_mass_phase[
-                            self.side_1_fluid_phase
+                        + b.cold_side.properties_out[t].dens_mass_phase[
+                            self.cold_side_fluid_phase
                         ]
                     )
                     / 2.0
@@ -1079,10 +835,12 @@ arrangement to use for delta T
         def N_Pr_tube_eqn(b, t):
             return (
                 b.N_Pr_tube[t]
-                * b.side_1.properties_in[t].therm_cond_phase[self.side_1_fluid_phase]
-                * b.side_1.properties_in[t].mw
-                == b.side_1.properties_in[t].cp_mol_phase[self.side_1_fluid_phase]
-                * b.side_1.properties_in[t].visc_d_phase[self.side_1_fluid_phase]
+                * b.cold_side.properties_in[t].therm_cond_phase[
+                    self.cold_side_fluid_phase
+                ]
+                * b.cold_side.properties_in[t].mw
+                == b.cold_side.properties_in[t].cp_mol_phase[self.cold_side_fluid_phase]
+                * b.cold_side.properties_in[t].visc_d_phase[self.cold_side_fluid_phase]
             )
 
         # Nusselts number
@@ -1104,7 +862,9 @@ arrangement to use for delta T
             return (
                 b.hconv_tube[t] * self.tube_di / 1000
                 == b.N_Nu_tube[t]
-                * b.side_1.properties_in[t].therm_cond_phase[self.side_1_fluid_phase]
+                * b.cold_side.properties_in[t].therm_cond_phase[
+                    self.cold_side_fluid_phase
+                ]
                 / 1000
             )
 
@@ -1154,11 +914,11 @@ arrangement to use for delta T
         # Velocity equation on shell side
         @self.Constraint(self.flowsheet().time, doc="Velocity on shell side")
         def v_shell_eqn(b, t):
-            return b.v_shell[t] * b.side_2.properties_in[t].dens_mol_phase[
+            return b.v_shell[t] * b.hot_side.properties_in[t].dens_mol_phase[
                 "Vap"
             ] * b.area_flow_shell == sum(
-                b.side_2.properties_in[t].flow_mol_comp[j]
-                for j in b.side_2.properties_in[t].params.component_list
+                b.hot_side.properties_in[t].flow_mol_comp[j]
+                for j in b.hot_side.properties_in[t].params.component_list
             )
 
         # Reynolds number
@@ -1166,19 +926,19 @@ arrangement to use for delta T
             self.flowsheet().time, doc="Reynolds number equation on shell side"
         )
         def N_Re_shell_eqn(b, t):
-            return b.N_Re_shell[t] * b.side_2.properties_in[
+            return b.N_Re_shell[t] * b.hot_side.properties_in[
                 t
-            ].visc_d == b.do_tube * b.v_shell[t] * b.side_2.properties_in[
+            ].visc_d == b.do_tube * b.v_shell[t] * b.hot_side.properties_in[
                 t
             ].dens_mol_phase[
                 "Vap"
             ] * sum(
-                b.side_2.properties_in[t].mw_comp[c]
-                * b.side_2.properties_in[t].mole_frac_comp[c]
-                for c in b.side_2.properties_in[t].params.component_list
+                b.hot_side.properties_in[t].mw_comp[c]
+                * b.hot_side.properties_in[t].mole_frac_comp[c]
+                for c in b.hot_side.properties_in[t].params.component_list
             )
 
-        if self.config.has_pressure_change is True:
+        if self.config.hot_side.has_pressure_change is True:
             # Friction factor on shell side
             if self.config.tube_arrangement == TubeArrangement.inLine:
 
@@ -1220,11 +980,11 @@ arrangement to use for delta T
                     == -1.4
                     * b.friction_factor_shell[t]
                     * b.tube_nrow
-                    * b.side_2.properties_in[t].dens_mol_phase["Vap"]
+                    * b.hot_side.properties_in[t].dens_mol_phase["Vap"]
                     * sum(
-                        b.side_2.properties_in[t].mw_comp[c]
-                        * b.side_2.properties_in[t].mole_frac_comp[c]
-                        for c in b.side_2.properties_in[t].params.component_list
+                        b.hot_side.properties_in[t].mw_comp[c]
+                        * b.hot_side.properties_in[t].mole_frac_comp[c]
+                        for c in b.hot_side.properties_in[t].params.component_list
                     )
                     * b.v_shell[t] ** 2
                 )
@@ -1236,13 +996,14 @@ arrangement to use for delta T
         def N_Pr_shell_eqn(b, t):
             return (
                 b.N_Pr_shell[t]
-                * b.side_2.properties_in[t].therm_cond
+                * b.hot_side.properties_in[t].therm_cond
                 * sum(
-                    b.side_2.properties_in[t].mw_comp[c]
-                    * b.side_2.properties_in[t].mole_frac_comp[c]
-                    for c in b.side_2.properties_in[t].params.component_list
+                    b.hot_side.properties_in[t].mw_comp[c]
+                    * b.hot_side.properties_in[t].mole_frac_comp[c]
+                    for c in b.hot_side.properties_in[t].params.component_list
                 )
-                == b.side_2.properties_in[t].cp_mol * b.side_2.properties_in[t].visc_d
+                == b.hot_side.properties_in[t].cp_mol
+                * b.hot_side.properties_in[t].visc_d
             )
 
         # Nusselt number, currently assume Re>300
@@ -1267,7 +1028,7 @@ arrangement to use for delta T
         def hconv_shell_conv_eqn(b, t):
             return (
                 b.hconv_shell_conv[t] * b.do_tube / 1000
-                == b.N_Nu_shell[t] * b.side_2.properties_in[t].therm_cond / 1000
+                == b.N_Nu_shell[t] * b.hot_side.properties_in[t].therm_cond / 1000
             )
 
         # Total convective heat transfer coefficient on shell side
@@ -1321,8 +1082,8 @@ arrangement to use for delta T
             None
         """
         # Run control volume block model checks
-        blk.side_1.model_check()
-        blk.side_2.model_check()
+        blk.cold_side.model_check()
+        blk.hot_side.model_check()
 
     def initialize_build(
         blk,
@@ -1364,11 +1125,11 @@ arrangement to use for delta T
 
         # ---------------------------------------------------------------------
         # Initialize inlet property blocks
-        flags1 = blk.side_1.initialize(
+        flags1 = blk.cold_side.initialize(
             outlvl=outlvl, optarg=optarg, solver=solver, state_args=state_args_1
         )
 
-        flags2 = blk.side_2.initialize(
+        flags2 = blk.hot_side.initialize(
             outlvl=outlvl, optarg=optarg, solver=solver, state_args=state_args_2
         )
         init_log.info("{} Initialisation Step 1 Complete.".format(blk.name))
@@ -1380,41 +1141,42 @@ arrangement to use for delta T
         h1_flags = {}
         t2_flags = {}
         for t in blk.flowsheet().time:
-            p1_flags[t] = blk.side_1.properties_out[t].pressure.fixed
+            p1_flags[t] = blk.cold_side.properties_out[t].pressure.fixed
             if (
-                not blk.side_1.properties_out[t].pressure.fixed
-                and blk.config.has_pressure_change
+                not blk.cold_side.properties_out[t].pressure.fixed
+                and blk.config.cold_side.has_pressure_change
             ):
-                blk.side_1.properties_out[t].pressure.fix(
-                    value(blk.side_1.properties_in[t].pressure)
+                blk.cold_side.properties_out[t].pressure.fix(
+                    value(blk.cold_side.properties_in[t].pressure)
                 )
 
-            p2_flags[t] = blk.side_2.properties_out[t].pressure.fixed
+            p2_flags[t] = blk.hot_side.properties_out[t].pressure.fixed
             if (
-                not blk.side_2.properties_out[t].pressure.fixed
-                and blk.config.has_pressure_change
+                not blk.hot_side.properties_out[t].pressure.fixed
+                and blk.config.hot_side.has_pressure_change
             ):
-                blk.side_2.properties_out[t].pressure.fix(
-                    value(blk.side_2.properties_in[t].pressure)
+                blk.hot_side.properties_out[t].pressure.fix(
+                    value(blk.hot_side.properties_in[t].pressure)
                 )
 
-            h1_flags[t] = blk.side_1.properties_out[t].enth_mol.fixed
-            if not blk.side_1.properties_out[t].enth_mol.fixed:
-                blk.side_1.properties_out[t].enth_mol.fix(
-                    value(blk.side_1.properties_in[t].enth_mol) + 100.0
+            h1_flags[t] = blk.cold_side.properties_out[t].enth_mol.fixed
+            if not blk.cold_side.properties_out[t].enth_mol.fixed:
+                blk.cold_side.properties_out[t].enth_mol.fix(
+                    value(blk.cold_side.properties_in[t].enth_mol) + 100.0
                 )
 
-            t2_flags[t] = blk.side_2.properties_out[t].temperature.fixed
-            if not blk.side_2.properties_out[t].temperature.fixed:
-                blk.side_2.properties_out[t].temperature.fix(
-                    value(blk.side_2.properties_in[t].temperature) - 5.0
+            t2_flags[t] = blk.hot_side.properties_out[t].temperature.fixed
+            if not blk.hot_side.properties_out[t].temperature.fixed:
+                blk.hot_side.properties_out[t].temperature.fix(
+                    value(blk.hot_side.properties_in[t].temperature) - 5.0
                 )
                 #                                assuming Delta T min approach
         # Deactivate Constraints
         blk.heat_transfer_equation.deactivate()
         blk.unit_heat_balance.deactivate()
-        if blk.config.has_pressure_change:
+        if blk.config.cold_side.has_pressure_change:
             blk.deltaP_tube_eqn.deactivate()
+        if blk.config.hot_side.has_pressure_change:
             blk.deltaP_shell_eqn.deactivate()
 
         with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
@@ -1424,18 +1186,19 @@ arrangement to use for delta T
         # Activate energy balance and driving force
         for t in blk.flowsheet().time:
             if not p1_flags[t]:
-                blk.side_1.properties_out[t].pressure.unfix()
+                blk.cold_side.properties_out[t].pressure.unfix()
             if not p2_flags[t]:
-                blk.side_2.properties_out[t].pressure.unfix()
+                blk.hot_side.properties_out[t].pressure.unfix()
             if not h1_flags[t]:
-                blk.side_1.properties_out[t].enth_mol.unfix()
+                blk.cold_side.properties_out[t].enth_mol.unfix()
             if not t2_flags[t]:
-                blk.side_2.properties_out[t].temperature.unfix()
+                blk.hot_side.properties_out[t].temperature.unfix()
         blk.heat_transfer_equation.activate()
         blk.unit_heat_balance.activate()
 
-        if blk.config.has_pressure_change:
+        if blk.config.cold_side.has_pressure_change:
             blk.deltaP_tube_eqn.activate()
+        if blk.config.hot_side.has_pressure_change:
             blk.deltaP_shell_eqn.activate()
 
         with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
@@ -1444,48 +1207,13 @@ arrangement to use for delta T
 
         # ---------------------------------------------------------------------
         # Release Inlet state
-        blk.side_1.release_state(flags1, outlvl)
-        blk.side_2.release_state(flags2, outlvl)
+        blk.cold_side.release_state(flags1, outlvl)
+        blk.hot_side.release_state(flags2, outlvl)
 
         init_log.info("{} Initialisation Complete.".format(blk.name))
 
     def calculate_scaling_factors(self):
         super().calculate_scaling_factors()
-
-        # We have a pretty good idea that the delta Ts will be between about
-        # 1 and 100 regardless of process of temperature units, so a default
-        # should be fine, so don't warn.  Guessing a typical delta t around 10
-        # the default scaling factor is set to 0.1
-        sf_dT1 = dict(
-            zip(
-                self.delta_temperature_in.keys(),
-                [
-                    iscale.get_scaling_factor(v, default=0.1)
-                    for v in self.delta_temperature_in.values()
-                ],
-            )
-        )
-        sf_dT2 = dict(
-            zip(
-                self.delta_temperature_out.keys(),
-                [
-                    iscale.get_scaling_factor(v, default=0.1)
-                    for v in self.delta_temperature_out.values()
-                ],
-            )
-        )
-
-        # U depends a lot on the process and units of measure so user should set
-        # this one.
-        sf_u = dict(
-            zip(
-                self.overall_heat_transfer_coefficient.keys(),
-                [
-                    iscale.get_scaling_factor(v, default=0.01, warning=True)
-                    for v in self.overall_heat_transfer_coefficient.values()
-                ],
-            )
-        )
 
         # Since this depends on the process size this is another scaling factor
         # the user should always set.
@@ -1495,27 +1223,27 @@ arrangement to use for delta T
 
         for t, c in self.v_shell_eqn.items():
             s = iscale.min_scaling_factor(
-                self.side_2.properties_in[t].flow_mol_comp,
+                self.hot_side.properties_in[t].flow_mol_comp,
                 default=0,
                 warning=False,
                 hint=None,
             )
             if s == 0:
                 s = iscale.get_scaling_factor(
-                    self.side_2.properties_in[t].flow_mol, default=1, warning=True
+                    self.hot_side.properties_in[t].flow_mol, default=1, warning=True
                 )
             iscale.constraint_scaling_transform(c, s, overwrite=False)
 
         for t, c in self.v_tube_eqn.items():
             s = iscale.min_scaling_factor(
-                self.side_1.properties_in[t].flow_mol_comp,
+                self.cold_side.properties_in[t].flow_mol_comp,
                 default=0,
                 warning=False,
                 hint=None,
             )
             if s == 0:
                 s = iscale.get_scaling_factor(
-                    self.side_1.properties_in[t].flow_mol, default=1, warning=True
+                    self.cold_side.properties_in[t].flow_mol, default=1, warning=True
                 )
             iscale.constraint_scaling_transform(c, s, overwrite=False)
 

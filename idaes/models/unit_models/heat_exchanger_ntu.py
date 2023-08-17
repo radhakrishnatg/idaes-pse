@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 IDAES heat exchanger model using effectiveness-NTU method
@@ -31,7 +31,6 @@ from pyomo.environ import (
     Var,
 )
 from pyomo.common.config import Bool, ConfigBlock, ConfigValue, In
-from pyomo.common.deprecation import deprecated
 
 # Import IDAES cores
 from idaes.core import (
@@ -43,13 +42,14 @@ from idaes.core import (
     UnitModelBlockData,
     useDefault,
 )
+from idaes.models.unit_models.heat_exchanger import hx_process_config, add_hx_references
 from idaes.core.util.config import is_physical_parameter_block
 from idaes.core.util.tables import create_stream_table_dataframe
 from idaes.core.util.math import smooth_min, smooth_max
 from idaes.core.solvers import get_solver
 from idaes.core.util.exceptions import InitializationError
-import idaes.core.util.unit_costing as costing
 import idaes.logger as idaeslog
+from idaes.core.initialization import SingleControlVolumeUnitInitializer
 
 __author__ = "Paul Akula, Andrew Lee"
 
@@ -58,11 +58,116 @@ __author__ = "Paul Akula, Andrew Lee"
 _log = idaeslog.getLogger(__name__)
 
 
+class HXNTUInitializer(SingleControlVolumeUnitInitializer):
+    """
+    Initializer for NTU Heat Exchanger units.
+
+    """
+
+    def initialization_routine(
+        self,
+        model: Block,
+        plugin_initializer_args: dict = None,
+        copy_inlet_state: bool = False,
+        duty=1000 * pyunits.W,
+    ):
+        """
+        Common initialization routine for NTU Heat Exchangers.
+
+        This routine starts by initializing the hot and cold side properties. Next, the heat
+        transfer between the two sides is fixed to an initial guess for the heat duty (provided by the duty
+        argument), the associated constraint deactivated, and the model is then solved. Finally, the heat
+        duty is unfixed and the heat transfer constraint reactivated followed by a final solve of the model.
+
+        Args:
+            model: Pyomo Block to be initialized
+            plugin_initializer_args: dict-of-dicts containing arguments to be passed to plug-in Initializers.
+                Keys should be submodel components.
+            copy_inlet_state: bool (default=False). Whether to copy inlet state to other states or not
+                (0-D control volumes only). Copying will generally be faster, but inlet states may not contain
+                all properties required elsewhere.
+            duty: initial guess for heat duty to assist with initialization. Can be a Pyomo expression with units.
+
+        Returns:
+            Pyomo solver results object
+        """
+        return super(SingleControlVolumeUnitInitializer, self).initialization_routine(
+            model=model,
+            plugin_initializer_args=plugin_initializer_args,
+            copy_inlet_state=copy_inlet_state,
+            duty=duty,
+        )
+
+    def initialize_main_model(
+        self,
+        model: Block,
+        copy_inlet_state: bool = False,
+        duty=1000 * pyunits.W,
+    ):
+        """
+        Initialization routine for main NTU HX models.
+
+        Args:
+            model: Pyomo Block to be initialized.
+            copy_inlet_state: bool (default=False). Whether to copy inlet state to other states or not
+                (0-D control volumes only). Copying will generally be faster, but inlet states may not contain
+                all properties required elsewhere.
+            duty: initial guess for heat duty to assist with initialization. Can be a Pyomo expression with units.
+
+        Returns:
+            Pyomo solver results object.
+
+        """
+        # TODO: Aside from one differences in constraint names, this is
+        # identical to the Initializer for the 0D HX unit.
+        # Set solver options
+        init_log = idaeslog.getInitLogger(
+            model.name, self.get_output_level(), tag="unit"
+        )
+        solve_log = idaeslog.getSolveLogger(
+            model.name, self.get_output_level(), tag="unit"
+        )
+
+        # Create solver
+        solver = get_solver(self.config.solver, self.config.solver_options)
+
+        self.initialize_control_volume(model.hot_side, copy_inlet_state)
+        init_log.info_high("Initialization Step 1a (hot side) Complete.")
+
+        self.initialize_control_volume(model.cold_side, copy_inlet_state)
+        init_log.info_high("Initialization Step 1b (cold side) Complete.")
+
+        # ---------------------------------------------------------------------
+        # Solve unit without heat transfer equation
+        model.energy_balance_constraint.deactivate()
+
+        model.cold_side.heat.fix(duty)
+        for i in model.hot_side.heat:
+            model.hot_side.heat[i].set_value(-duty)
+
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            res = solver.solve(model, tee=slc.tee)
+
+        init_log.info_high("Initialization Step 2 {}.".format(idaeslog.condition(res)))
+
+        model.cold_side.heat.unfix()
+        model.energy_balance_constraint.activate()
+        # ---------------------------------------------------------------------
+        # Solve unit
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            res = solver.solve(model, tee=slc.tee)
+        init_log.info("Initialization Completed, {}".format(idaeslog.condition(res)))
+
+        return res
+
+
 @declare_process_block_class("HeatExchangerNTU")
 class HeatExchangerNTUData(UnitModelBlockData):
     """Heat Exchanger Unit Model using NTU method."""
 
-    CONFIG = UnitModelBlockData.CONFIG()
+    default_initializer = HXNTUInitializer
+
+    CONFIG = UnitModelBlockData.CONFIG(implicit=True)
 
     # Configuration template for fluid specific  arguments
     _SideCONFIG = ConfigBlock()
@@ -162,20 +267,35 @@ constructed,
     # Create individual config blocks for hot and cold sides
     CONFIG.declare("hot_side", _SideCONFIG(doc="Hot fluid config arguments"))
     CONFIG.declare("cold_side", _SideCONFIG(doc="Cold fluid config arguments"))
+    CONFIG.declare(
+        "hot_side_name",
+        ConfigValue(
+            default=None,
+            domain=str,
+            doc="Hot side name, sets control volume and inlet and outlet names",
+        ),
+    )
+    CONFIG.declare(
+        "cold_side_name",
+        ConfigValue(
+            default=None,
+            domain=str,
+            doc="Cold side name, sets control volume and inlet and outlet names",
+        ),
+    )
 
     def build(self):
         # Call UnitModel.build to setup model
         super().build()
+        hx_process_config(self)
 
         # ---------------------------------------------------------------------
         # Build hot-side control volume
         self.hot_side = ControlVolume0DBlock(
-            default={
-                "dynamic": self.config.dynamic,
-                "has_holdup": self.config.has_holdup,
-                "property_package": self.config.hot_side.property_package,
-                "property_package_args": self.config.hot_side.property_package_args,
-            }
+            dynamic=self.config.dynamic,
+            has_holdup=self.config.has_holdup,
+            property_package=self.config.hot_side.property_package,
+            property_package_args=self.config.hot_side.property_package_args,
         )
 
         # TODO : Add support for phase equilibrium?
@@ -199,12 +319,10 @@ constructed,
         # ---------------------------------------------------------------------
         # Build cold-side control volume
         self.cold_side = ControlVolume0DBlock(
-            default={
-                "dynamic": self.config.dynamic,
-                "has_holdup": self.config.has_holdup,
-                "property_package": self.config.cold_side.property_package,
-                "property_package_args": self.config.cold_side.property_package_args,
-            }
+            dynamic=self.config.dynamic,
+            has_holdup=self.config.has_holdup,
+            property_package=self.config.cold_side.property_package,
+            property_package_args=self.config.cold_side.property_package_args,
         )
 
         self.cold_side.add_state_blocks(has_phase_equilibrium=False)
@@ -227,23 +345,26 @@ constructed,
         # ---------------------------------------------------------------------
         # Add Ports to control volumes
         self.add_inlet_port(
-            name="hot_inlet", block=self.hot_side, doc="Hot side inlet port"
+            name="hot_side_inlet", block=self.hot_side, doc="Hot side inlet port"
         )
         self.add_outlet_port(
-            name="hot_outlet", block=self.hot_side, doc="Hot side outlet port"
+            name="hot_side_outlet", block=self.hot_side, doc="Hot side outlet port"
         )
 
         self.add_inlet_port(
-            name="cold_inlet", block=self.cold_side, doc="Cold side inlet port"
+            name="cold_side_inlet", block=self.cold_side, doc="Cold side inlet port"
         )
         self.add_outlet_port(
-            name="cold_outlet", block=self.cold_side, doc="Cold side outlet port"
+            name="cold_side_outlet", block=self.cold_side, doc="Cold side outlet port"
         )
 
         # ---------------------------------------------------------------------
         # Add unit level References
         # Set references to balance terms at unit level
         self.heat_duty = Reference(self.cold_side.heat[:])
+
+        # Add references to the user provided aliases (if applicable).
+        add_hx_references(self)
 
         # ---------------------------------------------------------------------
         # Add performance equations
@@ -383,7 +504,7 @@ constructed,
                      default solver options)
             solver : str indicating which solver to use during
                      initialization (default = None, use default solver)
-            duty : an initial guess for the amount of heat transfered. This
+            duty : an initial guess for the amount of heat transferred. This
                 should be a tuple in the form (value, units), (default
                 = (1000 J/s))
 
@@ -424,7 +545,7 @@ constructed,
         if duty is None:
             # Assume 1000 J/s and check for unitless properties
             if s1_units is None and s2_units is None:
-                # Backwards compatability for unitless properties
+                # Backwards compatibility for unitless properties
                 s1_duty = -1000
                 s2_duty = 1000
             else:
@@ -474,25 +595,15 @@ constructed,
                 f"the output logs for more information."
             )
 
+        return res
+
     def _get_stream_table_contents(self, time_point=0):
         return create_stream_table_dataframe(
             {
-                "Hot Inlet": self.hot_inlet,
-                "Hot Outlet": self.hot_outlet,
-                "Cold Inlet": self.cold_inlet,
-                "Cold Outlet": self.cold_outlet,
+                "Hot Inlet": self.hot_side_inlet,
+                "Hot Outlet": self.hot_side_outlet,
+                "Cold Inlet": self.cold_side_inlet,
+                "Cold Outlet": self.cold_side_outlet,
             },
             time_point=time_point,
         )
-
-    @deprecated(
-        "The get_costing method is being deprecated in favor of the new "
-        "FlowsheetCostingBlock tools.",
-        version="TBD",
-    )
-    def get_costing(self, module=costing, year=None, **kwargs):
-        if not hasattr(self.flowsheet(), "costing"):
-            self.flowsheet().get_costing(year=year)
-
-        self.costing = Block()
-        module.hx_costing(self.costing, **kwargs)

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 This module tests for the VarLikeExpression component.
@@ -16,9 +16,7 @@ This module tests for the VarLikeExpression component.
 
 import pytest
 
-from pyomo.environ import ConcreteModel, Expression, Block, Var, units
-from pyomo.common.config import ConfigBlock
-from pyomo.core.base.units_container import UnitsError
+from pyomo.environ import ConcreteModel, Expression, Var
 
 from idaes.core.base.var_like_expression import VarLikeExpression
 
@@ -33,7 +31,7 @@ def test_SimpleVarLikeExpression():
 
     m.e = VarLikeExpression(expr=m.v)
 
-    assert m.e.type() is Expression
+    assert m.e.ctype is Expression
     assert not m.e.is_indexed()
 
     with pytest.raises(
@@ -90,7 +88,7 @@ def test_IndexedVarLikeExpression():
 
     m.e = VarLikeExpression([1, 2, 3, 4], expr=m.v)
 
-    assert m.e.type() is Expression
+    assert m.e.ctype is Expression
     assert m.e.is_indexed()
 
     with pytest.raises(

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 The boiler 2D heat exchanger model consist of a cross flow shell and tube
@@ -53,34 +53,26 @@ def build_unit():
     # Create a Concrete Model as the top level object
     m = pyo.ConcreteModel()
     # Add a flowsheet object to the model
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
     # Add property packages to flowsheet library
     m.fs.prop_water = iapws95.Iapws95ParameterBlock()
     m.fs.prop_fluegas = FlueGasParameterBlock()
     # Add a 2D cross-flow heat exchanger with header model to the flowsheet
     m.fs.unit = HeatExchangerCrossFlow2D_Header(
-        default={
-            "tube_side": {
-                "property_package": m.fs.prop_water,
-                "has_pressure_change": True,
-            },
-            "shell_side": {
-                "property_package": m.fs.prop_fluegas,
-                "has_pressure_change": True,
-            },
-            "finite_elements": 5,
-            "flow_type": "counter_current",
-            "tube_arrangement": "in-line",
-            "tube_side_water_phase": "Vap",
-            "has_radiation": True,
-            "radial_elements": 5,
-            "tube_inner_diameter": 0.035,
-            "tube_thickness": 0.0035,
-            "has_header": True,
-            "header_radial_elements": 5,
-            "header_inner_diameter": 0.3,
-            "header_wall_thickness": 0.03,
-        }
+        tube_side={"property_package": m.fs.prop_water, "has_pressure_change": True},
+        shell_side={"property_package": m.fs.prop_fluegas, "has_pressure_change": True},
+        finite_elements=5,
+        flow_type="counter_current",
+        tube_arrangement="in-line",
+        tube_side_water_phase="Vap",
+        has_radiation=True,
+        radial_elements=5,
+        tube_inner_diameter=0.035,
+        tube_thickness=0.0035,
+        has_header=True,
+        header_radial_elements=5,
+        header_inner_diameter=0.3,
+        header_wall_thickness=0.03,
     )
 
     # Primary Superheater (NETL baseline report)
@@ -116,6 +108,7 @@ def build_unit():
     return m
 
 
+@pytest.mark.skipif(not iapws95.iapws95_available(), reason="IAPWS not available")
 @pytest.mark.unit
 def test_basic_build(build_unit):
     """Make a model and make sure it doesn't throw exception"""

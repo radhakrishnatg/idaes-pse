@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Flowsheet example of the 0D FixedBed model for an iron-oxide reduction
@@ -18,6 +18,8 @@ Created: 05/14/2020
 
 Author: Chinedu Okoli
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-function-docstring
 
 import time
 
@@ -42,26 +44,19 @@ from idaes.models_extra.gas_solid_contactors.properties.methane_iron_OC_reductio
 
 # -----------------------------------------------------------------------------
 def main(m):
-    m.fs = FlowsheetBlock(
-        default={"dynamic": True, "time_set": [0, 3600], "time_units": pyunits.s}
-    )
+    m.fs = FlowsheetBlock(dynamic=True, time_set=[0, 3600], time_units=pyunits.s)
 
     m.fs.gas_props = GasPhaseParameterBlock()
     m.fs.solid_props = SolidPhaseParameterBlock()
     m.fs.solid_rxns = HeteroReactionParameterBlock(
-        default={
-            "solid_property_package": m.fs.solid_props,
-            "gas_property_package": m.fs.gas_props,
-        }
+        solid_property_package=m.fs.solid_props, gas_property_package=m.fs.gas_props
     )
 
     m.fs.TGA = FixedBed0D(
-        default={
-            "energy_balance_type": EnergyBalanceType.none,
-            "gas_property_package": m.fs.gas_props,
-            "solid_property_package": m.fs.solid_props,
-            "reaction_package": m.fs.solid_rxns,
-        }
+        energy_balance_type=EnergyBalanceType.none,
+        gas_property_package=m.fs.gas_props,
+        solid_property_package=m.fs.solid_props,
+        reaction_package=m.fs.solid_rxns,
     )
 
     # Discretize time domain

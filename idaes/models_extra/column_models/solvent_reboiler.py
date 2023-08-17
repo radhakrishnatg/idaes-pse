@@ -1,20 +1,20 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Reboiler model for solvent columns.
 
 This is a simple model for a reboiler in the case where liquid and vapor phases
-have separate proeprty packages, such as the case of solvent columns.
+have separate property packages, such as the case of solvent columns.
 
 Assumptions:
      * Steady-state only
@@ -68,7 +68,7 @@ class SolventReboilerData(UnitModelBlockData):
     """
 
     CONFIG = ConfigBlock()
-    # TOOO: Add dynamics in future
+    # TODO: Add dynamics in future
     CONFIG.declare(
         "dynamic",
         ConfigValue(
@@ -243,12 +243,10 @@ see property package for documentation.}""",
         # ---------------------------------------------------------------------
         # Add Control Volume for the Liquid Phase
         self.liquid_phase = ControlVolume0DBlock(
-            default={
-                "dynamic": self.config.dynamic,
-                "has_holdup": self.config.has_holdup,
-                "property_package": self.config.liquid_property_package,
-                "property_package_args": self.config.liquid_property_package_args,
-            }
+            dynamic=self.config.dynamic,
+            has_holdup=self.config.has_holdup,
+            property_package=self.config.liquid_property_package,
+            property_package_args=self.config.liquid_property_package_args,
         )
 
         self.liquid_phase.add_state_blocks(has_phase_equilibrium=True)
@@ -280,11 +278,11 @@ see property package for documentation.}""",
         tmp_dict["has_phase_equilibrium"] = False
         tmp_dict["defined_state"] = False
         self.vapor_phase = self.config.vapor_property_package.build_state_block(
-            self.flowsheet().time, doc="Vapor phase properties", default=tmp_dict
+            self.flowsheet().time, doc="Vapor phase properties", **tmp_dict
         )
 
         # ---------------------------------------------------------------------
-        # Check flow basis is compatable
+        # Check flow basis is compatible
         # TODO : Could add code to convert flow bases, but not now
         t_init = self.flowsheet().time.first()
         if (
@@ -354,13 +352,13 @@ see property package for documentation.}""",
             elif j in self.vapor_phase.component_list:
                 # Non-condensable component
                 # No mass transfer term
-                # Set vapor flowrate to an arbitary small value
+                # Set vapor flowrate to an arbitrary small value
                 return (
                     blk.vapor_phase[t].get_material_flow_terms("Vap", j)
                     == blk.zero_flow_param
                 )
             else:
-                # Non-vaporisable comonent
+                # Non-vaporisable component
                 # Mass transfer term is zero, no vapor flowrate
                 return blk.liquid_phase.mass_transfer_term[t, "Liq", j] == 0 * lunits(
                     fb
@@ -566,7 +564,7 @@ see property package for documentation.}""",
             # Check for unindexed state variables
             for sv in vap_state_vars:
                 if "flow" in sv:
-                    # Flow varaible, assume 10% vaporization
+                    # Flow variable, assume 10% vaporization
                     if "phase_comp" in sv:
                         # Flow is indexed by phase and component
                         vapor_state_args[sv] = {}

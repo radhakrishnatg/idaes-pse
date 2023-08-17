@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for unit_model.
@@ -35,6 +35,7 @@ from idaes.core.util.exceptions import (
     DynamicError,
 )
 from idaes.core.util.testing import PhysicalParameterTestBlock
+from idaes.core.initialization import SingleControlVolumeUnitInitializer
 
 
 @declare_process_block_class("Flowsheet")
@@ -58,12 +59,14 @@ def test_config_block():
     assert len(m.u.config) == 2
     assert m.u.config.dynamic == useDefault
 
+    assert m.u.default_initializer is SingleControlVolumeUnitInitializer
+
 
 @pytest.mark.unit
 def test_config_args():
     m = ConcreteModel()
 
-    m.u = Unit(default={"dynamic": True})
+    m.u = Unit(dynamic=True)
 
     assert m.u.config.dynamic is True
 
@@ -97,7 +100,7 @@ def test_setup_dynamics1():
     # Test that _setup_dynamics gets argument from parent
     m = ConcreteModel()
 
-    m.fs = Flowsheet(default={"dynamic": False})
+    m.fs = Flowsheet(dynamic=False)
 
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
@@ -125,9 +128,9 @@ def test_setup_dynamics_dynamic_in_steady_state():
     # steady-state parent
     m = ConcreteModel()
 
-    m.fs = Flowsheet(default={"dynamic": False})
+    m.fs = Flowsheet(dynamic=False)
 
-    m.fs.u = Unit(default={"dynamic": True})
+    m.fs.u = Unit(dynamic=True)
     with pytest.raises(DynamicError):
         m.fs.u._setup_dynamics()
 
@@ -137,7 +140,7 @@ def test_setup_dynamics_get_time():
     # Test that time domain is collected correctly
     m = ConcreteModel()
 
-    m.fs = Flowsheet(default={"dynamic": False})
+    m.fs = Flowsheet(dynamic=False)
 
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
@@ -148,7 +151,7 @@ def test_setup_dynamics_has_holdup():
     # Test that has_holdup argument is True when dynamic is True
     m = ConcreteModel()
 
-    m.fs = Flowsheet(default={"dynamic": True, "time_units": units.s})
+    m.fs = Flowsheet(dynamic=True, time_units=units.s)
 
     m.fs.u = Unit()
     m.fs.u.config.has_holdup = False
@@ -208,7 +211,7 @@ def test_add_inlet_port_CV0D():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.control_volume = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.control_volume = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.control_volume.add_state_blocks(has_phase_equilibrium=False)
 
@@ -240,11 +243,9 @@ def test_add_inlet_port_CV1D():
     m.fs.u._setup_dynamics()
 
     m.fs.u.control_volume = ControlVolume1DBlock(
-        default={
-            "property_package": m.fs.pp,
-            "transformation_method": "dae.finite_difference",
-            "transformation_scheme": "BACKWARD",
-        }
+        property_package=m.fs.pp,
+        transformation_method="dae.finite_difference",
+        transformation_scheme="BACKWARD",
     )
 
     m.fs.u.control_volume.add_geometry()
@@ -278,11 +279,9 @@ def test_add_inlet_port_CV1D_backward():
     m.fs.u._setup_dynamics()
 
     m.fs.u.control_volume = ControlVolume1DBlock(
-        default={
-            "property_package": m.fs.pp,
-            "transformation_method": "dae.finite_difference",
-            "transformation_scheme": "BACKWARD",
-        }
+        property_package=m.fs.pp,
+        transformation_method="dae.finite_difference",
+        transformation_scheme="BACKWARD",
     )
 
     m.fs.u.control_volume.add_geometry(flow_direction=FlowDirection.backward)
@@ -315,7 +314,7 @@ def test_add_inlet_port_CV0D_no_default_block():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.cv = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.cv = ControlVolume0DBlock(property_package=m.fs.pp)
 
     with pytest.raises(
         ConfigurationError,
@@ -334,7 +333,7 @@ def test_add_inlet_port_CV0D_full_args():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.cv = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.cv = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.cv.add_state_blocks(has_phase_equilibrium=False)
 
@@ -371,7 +370,7 @@ def test_add_inlet_port_CV0D_part_args():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.cv = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.cv = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.cv.add_state_blocks(has_phase_equilibrium=False)
 
@@ -400,7 +399,7 @@ def test_add_inlet_port_CV0D_no_state_blocks():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.control_volume = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.control_volume = ControlVolume0DBlock(property_package=m.fs.pp)
 
     with pytest.raises(
         ConfigurationError,
@@ -419,7 +418,7 @@ def test_add_outlet_port_CV0D():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.control_volume = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.control_volume = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.control_volume.add_state_blocks(has_phase_equilibrium=False)
 
@@ -451,11 +450,9 @@ def test_add_outlet_port_CV1D():
     m.fs.u._setup_dynamics()
 
     m.fs.u.control_volume = ControlVolume1DBlock(
-        default={
-            "property_package": m.fs.pp,
-            "transformation_method": "dae.finite_difference",
-            "transformation_scheme": "BACKWARD",
-        }
+        property_package=m.fs.pp,
+        transformation_method="dae.finite_difference",
+        transformation_scheme="BACKWARD",
     )
 
     m.fs.u.control_volume.add_geometry()
@@ -489,11 +486,9 @@ def test_add_outlet_port_CV1D_backward():
     m.fs.u._setup_dynamics()
 
     m.fs.u.control_volume = ControlVolume1DBlock(
-        default={
-            "property_package": m.fs.pp,
-            "transformation_method": "dae.finite_difference",
-            "transformation_scheme": "BACKWARD",
-        }
+        property_package=m.fs.pp,
+        transformation_method="dae.finite_difference",
+        transformation_scheme="BACKWARD",
     )
 
     m.fs.u.control_volume.add_geometry(flow_direction=FlowDirection.backward)
@@ -526,7 +521,7 @@ def test_add_outlet_port_CV0D_no_default_block():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.cv = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.cv = ControlVolume0DBlock(property_package=m.fs.pp)
 
     with pytest.raises(
         ConfigurationError,
@@ -546,7 +541,7 @@ def test_add_outlet_port_CV0D_full_args():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.cv = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.cv = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.cv.add_state_blocks(has_phase_equilibrium=False)
 
@@ -583,7 +578,7 @@ def test_add_outlet_port_CV0D_part_args():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.cv = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.cv = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.cv.add_state_blocks(has_phase_equilibrium=False)
 
@@ -612,7 +607,7 @@ def test_add_outlet_port_CV0D_no_state_blocks():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.control_volume = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.control_volume = ControlVolume0DBlock(property_package=m.fs.pp)
 
     with pytest.raises(
         ConfigurationError,
@@ -625,10 +620,7 @@ def test_add_outlet_port_CV0D_no_state_blocks():
 
 @pytest.mark.unit
 def test_fix_unfix_initial_conditions():
-    fs = Flowsheet(
-        default={"dynamic": True, "time_set": [0, 1, 2], "time_units": units.s},
-        concrete=True,
-    )
+    fs = Flowsheet(dynamic=True, time_set=[0, 1, 2], time_units=units.s, concrete=True)
     fs._setup_dynamics()
 
     fs.b = Unit()
@@ -667,7 +659,7 @@ def test_get_stream_table_contents_CV0D():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.control_volume = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.control_volume = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.control_volume.add_state_blocks(has_phase_equilibrium=False)
 
@@ -699,7 +691,7 @@ def test_get_stream_table_contents_CV0D_missing_default_port():
     m.fs.u = Unit()
     m.fs.u._setup_dynamics()
 
-    m.fs.u.control_volume = ControlVolume0DBlock(default={"property_package": m.fs.pp})
+    m.fs.u.control_volume = ControlVolume0DBlock(property_package=m.fs.pp)
 
     m.fs.u.control_volume.add_state_blocks(has_phase_equilibrium=False)
 

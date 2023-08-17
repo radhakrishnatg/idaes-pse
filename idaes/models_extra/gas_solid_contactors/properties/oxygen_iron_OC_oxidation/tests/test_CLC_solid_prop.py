@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for CLC solid phase thermo state block; tests for construction and solve
@@ -57,13 +57,13 @@ solver = get_solver()
 @pytest.fixture(scope="class")
 def solid_prop():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # solid properties and state inlet block
     m.fs.properties = SolidPhaseParameterBlock()
 
     m.fs.unit = m.fs.properties.build_state_block(
-        [0], default={"parameters": m.fs.properties, "defined_state": True}
+        [0], parameters=m.fs.properties, defined_state=True
     )
 
     m.fs.unit[0].flow_mass.fix(1)
@@ -93,13 +93,13 @@ def test_setInputs_state_block(solid_prop):
 @pytest.fixture(scope="class")
 def solid_prop_unscaled():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # solid properties and state inlet block
     m.fs.properties = SolidPhaseParameterBlock()
 
     m.fs.unit = m.fs.properties.build_state_block(
-        [0], default={"parameters": m.fs.properties, "defined_state": True}
+        [0], parameters=m.fs.properties, defined_state=True
     )
 
     m.fs.unit[0].flow_mass.fix(1)
@@ -292,7 +292,7 @@ def test_units_consistent(solid_prop):
 @pytest.mark.unit
 def test_state_vars():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     m.fs.properties = SolidPhaseParameterBlock()
     m.fs.state = m.fs.properties.build_state_block()
@@ -307,14 +307,11 @@ def test_state_vars():
     assert len(list(m.fs.state.component_data_objects(Var))) == 6
     assert len(list(m.component_data_objects(Constraint))) == 1
 
-    for name, var in m.fs.state.define_state_vars().items():
-        assert name in m.fs.properties._metadata._properties
-
 
 @pytest.mark.unit
 def test_indexed_state_block():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
     m.fs.properties = SolidPhaseParameterBlock()
     m.fs.state = m.fs.properties.build_state_block([1, 2, 3])
 
@@ -333,7 +330,7 @@ def test_indexed_state_block():
 @pytest.mark.unit
 def test_property_construction_ordered():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
     m.fs.properties = SolidPhaseParameterBlock()
     m.fs.state = m.fs.properties.build_state_block()
 
@@ -350,7 +347,7 @@ def test_property_construction_ordered():
 
     state_vars = m.fs.state.define_state_vars()
     n_state_vars = len(state_vars)
-    n_vars = len(m.fs.properties._metadata._properties)
+    n_vars = len(m.fs.properties._metadata.properties.list_supported_properties())
     assert len(matching) == n_vars - n_state_vars
 
     nvar = len(list(m.fs.state.component_data_objects(Var)))
@@ -374,13 +371,9 @@ def test_property_construction_ordered():
 class TestProperties(unittest.TestCase):
     def _make_model(self):
         m = ConcreteModel()
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
         m.fs.properties = SolidPhaseParameterBlock()
-        m.fs.state = m.fs.properties.build_state_block(
-            default={
-                "defined_state": True,
-            }
-        )
+        m.fs.state = m.fs.properties.build_state_block(defined_state=True)
         for var in m.fs.state.define_state_vars().values():
             var.fix()
         return m

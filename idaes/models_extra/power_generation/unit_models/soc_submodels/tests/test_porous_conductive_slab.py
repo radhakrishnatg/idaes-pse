@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 
 __author__ = "Douglas Allan"
@@ -47,6 +47,7 @@ def common_components(nt, nz, nx, ncomp):
             "enth_mol": nx * nz * nt,
             "pressure": nx * nz * nt,
             "mole_frac_comp": nx * nz * nt * ncomp,
+            "diff_eff_coeff": nt * nx * nz * ncomp,
             "resistivity_log_preexponential_factor": 1,
             "resistivity_thermal_exponent_dividend": 1,
             "solid_heat_capacity": 1,
@@ -61,6 +62,7 @@ def common_components(nt, nz, nx, ncomp):
             "material_flux_x1_eqn": nz * nt * ncomp,
             "heat_flux_x0_eqn": nz * nt,
             "heat_flux_x1_eqn": nz * nt,
+            "diff_eff_coeff_eqn": nt * nx * nz * ncomp,
             "material_balance_eqn": nx * nz * nt * ncomp,
             "energy_balance_solid_eqn": nx * nz * nt,
         },
@@ -71,7 +73,6 @@ def common_components(nt, nz, nx, ncomp):
             "conc_mol_comp_x0": nz * nt * ncomp,
             "conc_mol_comp": nz * nx * nt * ncomp,
             "conc_mol_comp_x1": nz * nt * ncomp,
-            "diff_eff_coeff": nt * nx * nz * ncomp,
             "diff_eff_coeff_xfaces": nt * (nx + 1) * nz * ncomp,
             "diff_eff_coeff_zfaces": nt * nx * (nz + 1) * ncomp,
             "temperature_xfaces": nt * (nx + 1) * nz,
@@ -113,20 +114,12 @@ def fix_boundary_conditions(electrode):
 @pytest.fixture
 def modelNoHoldup():
     m = pyo.ConcreteModel()
-    m.fs = FlowsheetBlock(
-        default={
-            "dynamic": False,
-            "time_set": [0, 1],
-            "time_units": pyo.units.s,
-        }
-    )
+    m.fs = FlowsheetBlock(dynamic=False, time_set=[0, 1], time_units=pyo.units.s)
     m.fs.oxygen_electrode = soc.PorousConductiveSlab(
-        default={
-            "has_holdup": False,
-            "control_volume_zfaces": np.linspace(0, 1, 4).tolist(),
-            "control_volume_xfaces": np.linspace(0, 1, 5).tolist(),
-            "component_list": ["O2", "N2"],
-        }
+        has_holdup=False,
+        control_volume_zfaces=np.linspace(0, 1, 4).tolist(),
+        control_volume_xfaces=np.linspace(0, 1, 5).tolist(),
+        component_list=["O2", "N2"],
     )
     electrode = m.fs.oxygen_electrode
     electrode.length_x.fix(1e-3)
@@ -185,22 +178,21 @@ def modelHoldupNotDynamic():
         tset, iznodes, initialize=0, units=pyo.units.W / pyo.units.m**2
     )
     m.fs.fuel_electrode = soc.PorousConductiveSlab(
-        default={
-            "has_holdup": True,
-            "control_volume_zfaces": zfaces,
-            "control_volume_xfaces": xfaces_electrode,
-            "component_list": ["H2", "H2O", "N2"],
-            "length_z": m.fs.length_z,
-            "length_y": m.fs.length_y,
-            "conc_mol_comp_ref": m.fs.conc_mol_comp_ref,
-            "dconc_mol_comp_refdt": m.fs.dconc_mol_comp_refdt,
-            "conc_mol_comp_deviation_x0": m.fs.conc_mol_comp_deviation_x0,
-            "material_flux_x0": m.fs.material_flux_x0,
-            "heat_flux_x0": m.fs.heat_flux_x0,
-            "temperature_z": m.fs.temperature_z,
-            "temperature_deviation_x0": m.fs.temperature_deviation_x0,
-            "current_density": m.fs.current_density,
-        }
+        has_holdup=True,
+        has_gas_holdup=True,
+        control_volume_zfaces=zfaces,
+        control_volume_xfaces=xfaces_electrode,
+        component_list=["H2", "H2O", "N2"],
+        length_z=m.fs.length_z,
+        length_y=m.fs.length_y,
+        conc_mol_comp_ref=m.fs.conc_mol_comp_ref,
+        dconc_mol_comp_refdt=m.fs.dconc_mol_comp_refdt,
+        conc_mol_comp_deviation_x0=m.fs.conc_mol_comp_deviation_x0,
+        material_flux_x0=m.fs.material_flux_x0,
+        heat_flux_x0=m.fs.heat_flux_x0,
+        temperature_z=m.fs.temperature_z,
+        temperature_deviation_x0=m.fs.temperature_deviation_x0,
+        current_density=m.fs.current_density,
     )
     electrode = m.fs.fuel_electrode
     electrode.length_x.fix(1e-3)

@@ -1,18 +1,22 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Flowsheet-related classes and functions used by the UI.
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-class-docstring
+# pylint: disable=missing-function-docstring
+
 # stdlib
 from collections import defaultdict, deque
 import copy
@@ -31,7 +35,8 @@ from pyomo.network.port import Port
 
 # package
 from idaes import logger
-from idaes.core.ui.icons import UnitModelIcon
+from idaes.core.ui.icons.icons import UnitModelIcon
+from idaes.core.ui.icons.positioning import UnitModelsPositioning
 
 _log = logger.getLogger(__name__)
 
@@ -182,7 +187,8 @@ class FlowsheetSerializer:
         self.unit_models = {}  # {unit: {"name": unit.getname(), "type": str?}}
         self.streams = {}  # {Arc.getname(): Arc} or {Port.getname(): Port}
         self.ports = {}  # {Port: parent_unit}
-        self.edges = defaultdict(list)  # {name: {"source": unit, "dest": unit}}
+        self.edges = defaultdict(dict)  # {name: {"source": unit, "dest": unit}}
+        self.adj_list = defaultdict(set)  # {name: (neighbor1, neighbor2, ...)}
         self.orphaned_ports = {}
         self.labels = {}
         self._stream_table_df = None
@@ -198,6 +204,7 @@ class FlowsheetSerializer:
         self._logger = logger.getLogger(__name__)
         self.name = name
         self.flowsheet = flowsheet
+        self._positioning_model = None
         # serialize
         self._ingest_flowsheet()
         self._construct_output_json()
@@ -229,6 +236,7 @@ class FlowsheetSerializer:
             self._ordered_stream_names.append(component.getname())
 
     def _identify_unit_models(self) -> Dict:
+        # pylint: disable=import-outside-toplevel
         from idaes.core import UnitModelBlockData  # avoid circular import
         from idaes.core.base.property_base import PhysicalParameterBlock, StateBlock
 
@@ -267,6 +275,7 @@ class FlowsheetSerializer:
 
     def _construct_stream_labels(self):
         # Construct the stream labels
+        # pylint: disable-next=import-outside-toplevel
         from idaes.core.util.tables import (
             stream_states_dict,
         )  # deferred to avoid circ. import
@@ -291,13 +300,16 @@ class FlowsheetSerializer:
         used_ports = set()
         for name, stream in self.streams.items():
             try:  # This is necessary because for internally-nested arcs we may not record ports
+                src = self.ports[stream.source]
+                dst = self.ports[stream.dest]
                 self.edges[name] = {
-                    "source": self.ports[stream.source],
-                    "dest": self.ports[stream.dest],
+                    "source": src,
+                    "dest": dst,
                 }
+                self.adj_list[src.getname()].add(dst.getname())
                 used_ports.add(stream.source)
                 used_ports.add(stream.dest)
-            except KeyError as error:
+            except KeyError:
                 self._logger.error(
                     f"Unable to find port. {name}, {stream.source}, {stream.dest}"
                 )
@@ -434,6 +446,7 @@ class FlowsheetSerializer:
         This is intended for use on ports of top level unit models.
         It is unclear if it works with nested unit models (probably not).
         """
+        # pylint: disable-next=import-outside-toplevel
         from idaes.core.util.tables import stream_states_dict
 
         for port in sorted(untouched_ports, key=lambda p: str(p)):
@@ -464,6 +477,7 @@ class FlowsheetSerializer:
                 src = unit_port if type_ == self.FEED else self.ports[port]
                 dst = unit_port if type_ != self.FEED else self.ports[port]
                 self.edges[edge_name] = {"source": src, "dest": dst}
+                self.adj_list[src.getname()].add(dst.getname())
                 # Add label
                 self.labels[edge_name] = f"{type_} info"
                 # Check if we can add the port to the stream table
@@ -481,7 +495,7 @@ class FlowsheetSerializer:
                         self._ordered_stream_names.appendleft(edge_name)
                     else:
                         self._ordered_stream_names.append(edge_name)
-                except Exception:
+                except Exception:  # pylint: disable=W0703
                     self._logger.warning(
                         f"Cannot extract state block from Port: "
                         f"name={port_name}. "
@@ -503,10 +517,12 @@ class FlowsheetSerializer:
         return f"{base_name}_{self._unit_name_used_count[base_name]}"
 
     def _construct_output_json(self):
+        self._positioning_model = UnitModelsPositioning(self.adj_list, self.unit_models)
         self._construct_model_json()
         self._construct_jointjs_json()
 
     def _construct_model_json(self):
+        # pylint: disable-next=import-outside-toplevel
         from idaes.core.util.tables import (
             create_stream_table_ui,
         )  # deferred to avoid circular import
@@ -581,9 +597,9 @@ class FlowsheetSerializer:
                 "label": self.labels[edge],
             }
 
-    def _add_port_item(self, cell_index, group, id):
+    def _add_port_item(self, cell_index, group, _id):
         """Add port item to jointjs element"""
-        new_port_item = {"group": group, "id": id}
+        new_port_item = {"group": group, "id": _id}
         if new_port_item not in self._out_json["cells"][cell_index]["ports"]["items"]:
             self._out_json["cells"][cell_index]["ports"]["items"].append(new_port_item)
 
@@ -601,7 +617,7 @@ class FlowsheetSerializer:
                     unit_type,
                     unit_icon.link_positions,
                 )
-            except KeyError as e:
+            except KeyError:
                 self._logger.info(
                     f"Unable to find icon for {unit_type}. Using default icon"
                 )
@@ -615,27 +631,11 @@ class FlowsheetSerializer:
                     default_icon.link_positions,
                 )
 
-        def adjust_image_position(x_pos, y_pos, y_starting_pos):
-            """Based on the position of the last added element, we calculate
-            the x,y position of the next element.
-            """
-            # If x_pos it greater than 700 then start another diagonal line
-            if x_pos >= 700:
-                x_pos = 100
-                y_pos = y_starting_pos
-                y_starting_pos += 100
-            else:
-                x_pos += 100
-                y_pos += 100
-
-            return x_pos, y_pos, y_starting_pos
-
         self._out_json["cells"] = []
 
-        # Start out in the top left corner until we get a better inital layout
+        # Start out in the top left corner until we get a better initial layout
         x_pos = 10
         y_pos = 10
-        y_starting_pos = 10
 
         track_jointjs_elements = {}
 
@@ -656,20 +656,16 @@ class FlowsheetSerializer:
             dest_unit_icon = UnitModelIcon(dest_unit_type)
 
             if src_unit_name not in track_jointjs_elements:
+                x_pos, y_pos = self._positioning_model.get_position(src_unit_name)
                 cell_index = create_jointjs_image(
                     src_unit_icon, src_unit_name, src_unit_type, x_pos, y_pos
-                )
-                x_pos, y_pos, y_starting_pos = adjust_image_position(
-                    x_pos, y_pos, y_starting_pos
                 )
                 track_jointjs_elements[src_unit_name] = cell_index
 
             if dest_unit_name not in track_jointjs_elements:
+                x_pos, y_pos = self._positioning_model.get_position(dest_unit_name)
                 cell_index = create_jointjs_image(
                     dest_unit_icon, dest_unit_name, dest_unit_type, x_pos, y_pos
-                )
-                x_pos, y_pos, y_starting_pos = adjust_image_position(
-                    x_pos, y_pos, y_starting_pos
                 )
                 track_jointjs_elements[dest_unit_name] = cell_index
 
@@ -745,7 +741,7 @@ class FlowsheetSerializer:
         # Create the jointjs for a given image
 
         # The icon width and height default to 50x50 making all icons a square. This will need to be changed
-        # when we have more unit models that should not be square. Probaly add it to the icon mapping
+        # when we have more unit models that should not be square. Probably add it to the icon mapping
         icon_width = 50
         icon_height = 50
         # We want the icons to not be at an angle initially
@@ -828,9 +824,9 @@ class FlowsheetSerializer:
         eventually may need to actually implement/subclass
         """
 
-        def __init__(self, typename, id):
+        def __init__(self, typename, _id):
             self.name = typename
-            self.id = id
+            self.id = _id
 
         def getname(self):
             return self.id
@@ -924,8 +920,8 @@ class FlowsheetDiff:
         old_model, new_model = self._old["model"], self._new["model"]
         n = 0
         for cls in "unit_models", "arcs":
-            for k in diff.keys():
-                diff[k][cls] = {}
+            for k in diff.values():
+                k[cls] = {}
             old_data, new_data = old_model[cls], new_model[cls]
             # Add/change
             for key in new_data:

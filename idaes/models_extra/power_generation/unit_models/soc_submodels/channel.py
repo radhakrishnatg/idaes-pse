@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Model for channel in SolidOxideCell. If opposite_flow is false, material flows from
@@ -49,14 +49,18 @@ Instances of ``Var`` that must be fixed:
     - ``heat_transfer_coefficient[t, iz]``: Heat transfer coefficient between channel bulk and surfaces.
       Correlations to calculate this are planned, but they will add a large number of equations.
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-class-docstring
+# pylint: disable=missing-function-docstring
+
+# TODO: Look into protected access issues
+# pylint: disable=protected-access
 
 __author__ = "John Eslick, Douglas Allan"
 
 from pyomo.common.config import ConfigValue, In, ListOf, Bool
 from pyomo.dae import DerivativeVar
 import pyomo.environ as pyo
-from pyomo.network import Port
-
 
 from idaes.core import declare_process_block_class, UnitModelBlockData, useDefault
 from idaes.core.util.constants import Constants
@@ -176,13 +180,23 @@ class SocChannelData(UnitModelBlockData):
                 units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
             )
 
-            @self.Expression(tset, iznodes, comps)
-            def conc_mol_comp_deviation_x1(b, t, iz, j):
-                return 0
-
-            @self.Expression(tset, iznodes, comps)
-            def material_flux_x1(b, t, iz, j):
-                return 0
+            self.conc_mol_comp_deviation_x1 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero concentration deviation at interconnect wall.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m**3,
+            )
+            self.material_flux_x1 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero material flux from channel "
+                "to interconnect.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
+            )
 
         else:
             self.conc_mol_comp_deviation_x1 = pyo.Var(
@@ -203,14 +217,23 @@ class SocChannelData(UnitModelBlockData):
                 initialize=0,
                 units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
             )
-
-            @self.Expression(tset, iznodes, comps)
-            def conc_mol_comp_deviation_x0(b, t, iz, j):
-                return 0
-
-            @self.Expression(tset, iznodes, comps)
-            def material_flux_x0(b, t, iz, j):
-                return 0
+            self.conc_mol_comp_deviation_x0 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero concentration deviation at interconnect wall.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m**3,
+            )
+            self.material_flux_x0 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero material flux from channel "
+                "to interconnect.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
+            )
 
         # Channel thickness AKA length in the x direction is specific to the
         # channel so local variable here is the only option
@@ -286,6 +309,15 @@ class SocChannelData(UnitModelBlockData):
             doc="Component mole fraction at node centers",
             bounds=(0, None),
             units=pyo.units.dimensionless,
+        )
+        self.diff_eff_coeff = pyo.Var(
+            tset,
+            iznodes,
+            comps,
+            doc="Effective Fick's law diffusion coefficient at node centers",
+            initialize=2e-5,
+            bounds=(0, None),
+            units=pyo.units.m**2 / pyo.units.s,
         )
         self.flow_mol_inlet = pyo.Var(
             tset,
@@ -383,14 +415,13 @@ class SocChannelData(UnitModelBlockData):
                 for i in comps
             )
 
-        # TODO maybe replace with variable-constraint pair?
-        @self.Expression(tset, iznodes, comps)
-        def diff_eff_coeff(b, t, iz, i):
+        @self.Constraint(tset, iznodes, comps)
+        def diff_eff_coeff_eqn(b, t, iz, i):
             T = b.temperature[t, iz]
             P = b.pressure[t, iz]
             x = b.mole_frac_comp
             bfun = common._binary_diffusion_coefficient_expr
-            return (1.0 - x[t, iz, i]) / sum(
+            return b.diff_eff_coeff[t, iz, i] == (1.0 - x[t, iz, i]) / sum(
                 x[t, iz, j] / bfun(T, P, i, j) for j in comps if i != j
             )
 
@@ -406,9 +437,8 @@ class SocChannelData(UnitModelBlockData):
             @self.Constraint(tset, iznodes, comps)
             def material_flux_x0_eqn(b, t, iz, i):
                 return (
-                    b.material_flux_x0[t, iz, i]
-                    == b.mass_transfer_coeff[t, iz, i]
-                    * b.conc_mol_comp_deviation_x0[t, iz, i]
+                    -b.material_flux_x0[t, iz, i] / b.mass_transfer_coeff[t, iz, i]
+                    == b.conc_mol_comp_deviation_x0[t, iz, i]
                 )
 
         else:
@@ -416,9 +446,8 @@ class SocChannelData(UnitModelBlockData):
             @self.Constraint(tset, iznodes, comps)
             def material_flux_x1_eqn(b, t, iz, i):
                 return (
-                    b.material_flux_x1[t, iz, i]
-                    == -b.mass_transfer_coeff[t, iz, i]
-                    * b.conc_mol_comp_deviation_x1[t, iz, i]
+                    -b.material_flux_x1[t, iz, i] / b.mass_transfer_coeff[t, iz, i]
+                    == b.conc_mol_comp_deviation_x1[t, iz, i]
                 )
 
         @self.Constraint(tset, iznodes)
@@ -586,10 +615,8 @@ class SocChannelData(UnitModelBlockData):
         # For convenience define outlet expressions
         if self.config.opposite_flow:
             izfout = self.izfout = izfaces.first()
-            iznout = self.iznout = iznodes.first()
         else:
             izfout = self.izfout = izfaces.last()
-            iznout = self.iznout = iznodes.last()
 
         @self.Expression(tset, comps)
         def flow_mol_comp_outlet(b, t, i):
@@ -647,11 +674,9 @@ class SocChannelData(UnitModelBlockData):
         # fixed at the cell level instead.
         # TODO Add ports to submodel instead?
 
-        init_log = idaeslog.getInitLogger(self.name, outlvl, tag="unit")
         solve_log = idaeslog.getSolveLogger(self.name, outlvl, tag="unit")
 
         tset = self.flowsheet().config.time
-        t0 = tset.first()
 
         for t in tset:
             _set_if_unfixed(self.temperature_outlet[t], self.temperature_inlet[t])
@@ -788,9 +813,15 @@ class SocChannelData(UnitModelBlockData):
 
     def recursive_scaling(self):
         gsf = iscale.get_scaling_factor
-        ssf = common._set_scaling_factor_if_none
-        sgsf = common._set_and_get_scaling_factor
-        cst = lambda c, s: iscale.constraint_scaling_transform(c, s, overwrite=False)
+
+        def ssf(c, s):
+            iscale.set_scaling_factor(c, s, overwrite=False)
+
+        sgsf = iscale.set_and_get_scaling_factor
+
+        def cst(c, s):
+            iscale.constraint_scaling_transform(c, s, overwrite=False)
+
         sR = 1e-1  # Scaling factor for R
         # sD = 5e3 # Heuristic scaling factor for diffusion coefficient
         sD = 1e4
@@ -800,7 +831,6 @@ class SocChannelData(UnitModelBlockData):
         sH = 1e-4  # Enthalpy/int energy
         sLx = sgsf(self.length_x, 1 / self.length_x.value)
         sLy = 1 / self.length_y[None].value
-        sLz = len(self.iznodes) / self.length_z[None].value
 
         for t in self.flowsheet().time:
             sT = sgsf(self.temperature_inlet[t], 1e-2)
@@ -869,12 +899,15 @@ class SocChannelData(UnitModelBlockData):
 
                     ssf(self.conc_mol_comp[t, iz, j], sy * sP / (sR * sT))
                     cst(self.conc_mol_comp_eqn[t, iz, j], sy * sP)
+                    # FIXME come back later to clean up
+                    ssf(self.diff_eff_coeff[t, iz, j], 1e5)
+                    cst(self.diff_eff_coeff_eqn[t, iz, j], 1e5)
 
                     if hasattr(self, "material_flux_x0_eqn"):
                         sXflux = gsf(
                             self.material_flux_x0[t, iz, j], default=1e-1, warning=True
                         )
-                        cst(self.material_flux_x0_eqn[t, iz, j], sXflux)
+                        cst(self.material_flux_x0_eqn[t, iz, j], sLx * sXflux / sD)
                         ssf(
                             self.conc_mol_comp_deviation_x0[t, iz, j], sLx * sXflux / sD
                         )
@@ -882,7 +915,7 @@ class SocChannelData(UnitModelBlockData):
                         sXflux = gsf(
                             self.material_flux_x1[t, iz, j], default=1e-1, warning=True
                         )
-                        cst(self.material_flux_x1_eqn[t, iz, j], sXflux)
+                        cst(self.material_flux_x1_eqn[t, iz, j], sLx * sXflux / sD)
                         ssf(
                             self.conc_mol_comp_deviation_x1[t, iz, j], sLx * sXflux / sD
                         )

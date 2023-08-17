@@ -1,15 +1,19 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
+# TODO: Missing doc strings
+# pylint: disable=missing-module-docstring
+# pylint: disable=missing-class-docstring
+# pylint: disable=missing-function-docstring
 
 import os
 import sys
@@ -20,7 +24,6 @@ import json
 import gzip
 import numpy as np
 
-import idaes
 import pyomo.environ as pyo
 from pyomo.common.collections import ComponentSet, ComponentMap
 from pyomo.core.expr.visitor import identify_variables
@@ -32,38 +35,64 @@ from pyomo.util.subsystems import (
     create_subsystem_block,
 )
 from pyomo.solvers.plugins.solvers.ASL import ASL
-from pyomo.opt.solver import SystemCallSolver
 from pyomo.common.tempfiles import TempfileManager
-from pyomo.common.errors import ApplicationError
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
-from idaes.core.util.model_statistics import degrees_of_freedom
+
+import idaes
 import idaes.logger as idaeslog
-from idaes.core.solvers import get_solver
 import idaes.config as icfg
 
-PetscBinaryIOTrajectory = None
-PetscBinaryIO = None
+
+# Importing a few things here so that they are cached
+# pylint: disable=unused-import
+# pylint: disable=import-outside-toplevel
+# pylint: disable=protected-access
 
 
-def _import_petsc_binary_io():
-    global PetscBinaryIOTrajectory
-    global PetscBinaryIO
+def petsc_binary_io():
+    if petsc_binary_io.PetscBinaryIOTrajectory is not None:
+        return petsc_binary_io.PetscBinaryIOTrajectory
+
+    # First see if the python IO helpers are directly importable
     try:
         import PetscBinaryIOTrajectory
         import PetscBinaryIO
+
+        petsc_binary_io.PetscBinaryIOTrajectory = PetscBinaryIOTrajectory
+        return PetscBinaryIOTrajectory
     except ImportError:
-        petsc_dir = os.path.join(icfg.bin_directory, "petscpy")
-        if not os.path.isdir(petsc_dir):
-            return
-        sys.path.append(petsc_dir)
+        pass
+    # Next, look for a 'petscpy' directory alongside the 'petsc'
+    # executable: first look at the petsc we found on the path, then
+    # look in the IDAES bin dir.  Casting the Executable path to a
+    # string will map None to '' in the case where there is no petsc
+    # executable found.
+    for petsc_exe_dir in (
+        os.path.dirname(str(Executable("petsc").path())),
+        icfg.bin_directory,
+    ):
+        if not petsc_exe_dir:
+            continue
+        petscpy_dir = os.path.join(petsc_exe_dir, "petscpy")
         try:
+            sys.path.insert(0, petscpy_dir)
             import PetscBinaryIOTrajectory
             import PetscBinaryIO
+
+            # Import the petsc_conf so that it is cached in sys.modules
+            # (because we will be removing petscpy from sys.path)
+            import petsc_conf
+
+            petsc_binary_io.PetscBinaryIOTrajectory = PetscBinaryIOTrajectory
+            return PetscBinaryIOTrajectory
         except ImportError:
             pass
+        finally:
+            sys.path.remove(petscpy_dir)
+    return None
 
 
-_import_petsc_binary_io()
+petsc_binary_io.PetscBinaryIOTrajectory = None
 
 
 class DaeVarTypes(enum.IntEnum):
@@ -87,7 +116,7 @@ class Petsc(ASL):
     def _default_executable(self):
         """In addition to looking for the petsc executable, optionally check for
         a WSL batch file on Windows. Users could potentially also compile a
-        cygwin exectable on Windows, so WSL isn't the only option, but it is the
+        cygwin executable on Windows, so WSL isn't the only option, but it is the
         easiest for Windows."""
         executable = Executable("petsc")
         if not executable:
@@ -155,11 +184,11 @@ class PetscTS(Petsc):
         if self.options.get("--ts_save_trajectory", 0):
             try:
                 shutil.copyfile(f"{stub}.col", f"{self._ts_vars_stub}.col")
-            except:
+            except Exception:  # pylint: disable=W0703
                 pass
             try:
                 shutil.copyfile(f"{stub}.typ", f"{self._ts_vars_stub}.typ")
-            except:
+            except Exception:  # pylint: disable=W0703
                 pass
         return ASL._postsolve(self)
 
@@ -168,6 +197,8 @@ class PetscTS(Petsc):
 class PetscTAO(Petsc):
     """This is a place holder for optimization solvers"""
 
+    # Placeholder class, skip pylint checks
+    # pylint: disable=W0231
     def __init__(self, **kwds):
         raise NotImplementedError(
             "The PETSc TAO interface has not yet been implemented"
@@ -195,7 +226,7 @@ def petsc_available():
 def _copy_time(time_vars, t_from, t_to):
     """PRIVATE FUNCTION:
 
-    This is used on the flattened (only indexed by time) variable
+    This is used on the flattened (indexed only by time) variable
     representations to copy variable values that are unfixed at the "to" time
     from the value at the "from" time. The PETSc DAE solver uses the initial
     variable values as the initial condition, so this is used to copy the
@@ -231,7 +262,14 @@ def find_discretization_equations(m, time):
     disc_eqns = []
     for var in m.component_objects(pyo.Var):
         if isinstance(var, pyodae.DerivativeVar):
-            if time in ComponentSet(var.get_continuousset_list()):
+            cont_set_set = ComponentSet(var.get_continuousset_list())
+            if time in ComponentSet(cont_set_set):
+                if len(cont_set_set) > 1:
+                    raise NotImplementedError(
+                        f"IDAES presently does not support PETSc for second order or higher derivatives like {var.name} "
+                        "that are differentiated at least once with respect to time. Please reformulate your model so "
+                        "it does not contain such a derivative (such as by introducing intermediate variables)."
+                    )
                 parent = var.parent_block()
                 name = var.local_name + "_disc_eq"
                 disc_eq = getattr(parent, name)
@@ -382,6 +420,7 @@ def petsc_dae_by_time_element(
     initial_variables=None,
     detect_initial=True,
     skip_initial=False,
+    snes_solver="petsc_snes",
     snes_options=None,
     ts_options=None,
     keepfiles=False,
@@ -389,6 +428,7 @@ def petsc_dae_by_time_element(
     between=None,
     interpolate=True,
     calculate_derivatives=True,
+    previous_trajectory=None,
 ):
     """Solve a DAE problem step by step using the PETSc DAE solver.  This
     integrates from one time point to the next.
@@ -414,7 +454,9 @@ def petsc_dae_by_time_element(
             calculated. This can be useful, for example, if you read initial
             conditions from a separately solved steady state problem, or
             otherwise know the initial conditions.
-        snes_options (dict): PETSc nonlinear equation solver options
+        snes_solver (str): default=petsc_snes, the nonlinear equations solver
+            to use for the initial conditions (e.g. petsc_snes, ipopt, ...).
+        snes_options (dict): nonlinear equation solver options
         ts_options (dict): PETSc time-stepping solver options
         keepfiles (bool): pass to keepfiles arg for solvers
         symbolic_solver_labels (bool): pass to symbolic_solver_labels argument
@@ -433,11 +475,12 @@ def petsc_dae_by_time_element(
         calculate_derivatives: (bool) if True, calculate the derivative values
             based on the values of the differential variables in the discretized
             Pyomo model.
+        previous_trajectory: (PetscTrajectory) Trajectory from previous integration
+            of this model. New results will be appended to this trajectory object.
 
     Returns (PetscDAEResults):
-        See PetscDAEResults documentation for more informations.
+        See PetscDAEResults documentation for more information.
     """
-    tj = None
     if interpolate:
         if ts_options is None:
             ts_options = {}
@@ -464,16 +507,20 @@ def petsc_dae_by_time_element(
     solver_dae = pyo.SolverFactory("petsc_ts", options=ts_options)
     save_trajectory = solver_dae.options.get("--ts_save_trajectory", 0)
 
-    # First calculate the inital conditions and non-time-indexed constraints
+    # First calculate the initial conditions and non-time-indexed constraints
     res_list = []
     t0 = between.first()
+    # list of variables to add to initial condition problem
+    if initial_variables is None:
+        initial_variables = []
+    if detect_initial:
+        rvset = ComponentSet(regular_vars)
+        ivset = ComponentSet(initial_variables)
+        initial_variables = list(ivset | rvset)
 
     if not skip_initial:
         # Nonlinear equation solver for initial conditions
-        solver_snes = pyo.SolverFactory("petsc_snes", options=snes_options)
-        # list of variables to add to initial condition problem
-        if initial_variables is None:
-            initial_variables = []
+        solver_snes = pyo.SolverFactory(snes_solver, options=snes_options)
         # list of constraints to add to the initial condition problem
         if initial_constraints is None:
             initial_constraints = []
@@ -481,11 +528,8 @@ def petsc_dae_by_time_element(
         if detect_initial:
             # If detect_initial, solve the non-time-indexed variables and
             # constraints with the initial conditions
-            rvset = ComponentSet(regular_vars)
             rcset = ComponentSet(regular_cons)
             icset = ComponentSet(initial_constraints)
-            ivset = ComponentSet(initial_variables)
-            initial_variables = list(ivset | rvset)
             initial_constraints = list(icset | rcset)
 
         with TemporarySubsystemManager(to_deactivate=tdisc):
@@ -507,15 +551,17 @@ def petsc_dae_by_time_element(
                 res_list.append(res)
 
     tprev = t0
-    count = 1
     fix_derivs = []
+    tj = previous_trajectory
+    if tj is not None:
+        variables_prev = [var[t0] for var in time_vars]
+
     with TemporarySubsystemManager(
         to_deactivate=tdisc,
         to_fix=initial_variables + fix_derivs,
     ):
         # Solver time steps
         deriv_diff_map = _get_derivative_differential_data_map(m, time)
-        tj = None  # trajectory data
         for t in between:
             if t == between.first():
                 # t == between.first() was handled above
@@ -612,14 +658,14 @@ def petsc_dae_by_time_element(
                 if isinstance(var[t0].parent_component(), pyodae.DerivativeVar):
                     continue  # skip derivative vars
                 vec = tj.interpolate_vec(itime, var[tlast])
-                for i, (t, v) in enumerate(var.items()):
-                    if t < t0 or t > tlast or t in between:
-                        # Time is outside the range or already set
+                for i, t in enumerate(itime):
+                    if t in between:
+                        # Time is already set
                         continue
-                    if not v.fixed:
+                    if not var[t].fixed:
                         # May not have trajectory from fixed variables and they
                         # shouldn't change anyway, so only set not fixed vars
-                        v.value = vec[i]
+                        var[t].value = vec[i]
         if calculate_derivatives:
             # the petsc solver interface does not currently return time
             # derivatives, and if it did, they would be estimated based on a
@@ -687,7 +733,7 @@ class PetscTrajectory(object):
         """
         if no_read:
             return
-        if PetscBinaryIOTrajectory is None and stub is not None:
+        if petsc_binary_io() is None and stub is not None:
             raise RuntimeError("PetscBinaryIOTrajectory could not be imported")
         # if unscale is True, use model as scale factor source
         if model is not None and unscale is True:
@@ -720,15 +766,15 @@ class PetscTrajectory(object):
             names = list(map(str.strip, f.readlines()))
         with open(f"{self.stub}.typ") as f:
             typ = list(map(int, f.readlines()))
-        vars = [name for i, name in enumerate(names) if typ[i] in [0, 1]]
-        (t, v, names) = PetscBinaryIOTrajectory.ReadTrajectory("Visualization-data")
+        _vars = [name for i, name in enumerate(names) if typ[i] in [0, 1]]
+        (t, v, names) = petsc_binary_io().ReadTrajectory("Visualization-data")
         self.time = t
         self.vecs_by_time = v
-        self.vecs = dict.fromkeys(vars, None)
+        self.vecs = dict.fromkeys(_vars, None)
         for k in self.vecs.keys():
             self.vecs[k] = [0] * len(self.time)
         self.vecs["_time"] = list(self.time)
-        for i, v in enumerate(vars):
+        for i, v in enumerate(_vars):
             for j, vt in enumerate(self.vecs_by_time):
                 self.vecs[v][j] = vt[i]
 
@@ -752,7 +798,7 @@ class PetscTrajectory(object):
             var (str or Var): Variable to get vector for.
             time (Set): Time index set
 
-        Retruns (list):
+        Returns (list):
             vector of variable values at each time point
 
         """
@@ -818,7 +864,7 @@ class PetscTrajectory(object):
     def _unscale(self, m):
         """If variable scale factors are used, the solver will see scaled
         variables, and the scaled trajectory will be written. This function
-        uses variable scaling facors from the given model to unscale the
+        uses variable scaling factors from the given model to unscale the
         trajectory.
 
         Args:

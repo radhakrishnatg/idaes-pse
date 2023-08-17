@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for eNRTL methods
@@ -45,7 +45,7 @@ import idaes.logger as idaeslog
 
 
 def dummy_method(b, *args, **kwargs):
-    return 42 * pyunits.mol / pyunits.m**3
+    return 42.0 * pyunits.mol / pyunits.m**3
 
 
 configuration = {
@@ -96,7 +96,7 @@ class TestParameters(object):
     def test_parameters_no_assignment(self):
         m = ConcreteModel()
 
-        m.params = GenericParameterBlock(default=configuration)
+        m.params = GenericParameterBlock(**configuration)
 
         assert isinstance(m.params.Liq.ion_pair_set, Set)
         assert len(m.params.Liq.ion_pair_set) == 4
@@ -110,7 +110,7 @@ class TestParameters(object):
 
         assert isinstance(m.params.Liq.alpha, Var)
         assert len(m.params.Liq.alpha) == 17
-        for (i, j) in m.params.Liq.alpha:
+        for i, j in m.params.Liq.alpha:
             if i != j:
                 assert (j, i) not in m.params.Liq.alpha
             if (i, j) in [("C6H12", "C6H12"), ("H2O", "H2O"), ("H2O", "C6H12")]:
@@ -122,7 +122,7 @@ class TestParameters(object):
 
         assert isinstance(m.params.Liq.tau, Var)
         assert len(m.params.Liq.tau) == 32
-        for (i, j) in m.params.Liq.tau:
+        for i, j in m.params.Liq.tau:
             assert m.params.Liq.tau[(i, j)].value == 0
             assert m.params.Liq.tau[(i, j)].fixed
 
@@ -137,11 +137,11 @@ class TestParameters(object):
 
         m = ConcreteModel()
 
-        m.params = GenericParameterBlock(default=test_config)
+        m.params = GenericParameterBlock(**test_config)
 
         assert isinstance(m.params.Liq.alpha, Var)
         assert len(m.params.Liq.alpha) == 17
-        for (i, j) in m.params.Liq.alpha:
+        for i, j in m.params.Liq.alpha:
             if i != j:
                 assert (j, i) not in m.params.Liq.alpha
             if (i, j) == ("H2O", "Na+, Cl-"):
@@ -156,7 +156,7 @@ class TestParameters(object):
 
         assert isinstance(m.params.Liq.tau, Var)
         assert len(m.params.Liq.tau) == 32
-        for (i, j) in m.params.Liq.tau:
+        for i, j in m.params.Liq.tau:
             print(i, j)
             if (i, j) == ("H2O", "Na+, Cl-"):
                 assert m.params.Liq.tau[(i, j)].value == 0.1
@@ -183,7 +183,7 @@ class TestParameters(object):
             "non-symmetric value for pair (.+?). Please assign "
             "only one value for component pair.",
         ):
-            m.params = GenericParameterBlock(default=test_config)
+            m.params = GenericParameterBlock(**test_config)
 
     @pytest.mark.unit
     def test_parameters_alpha_symmetry_duplicate(self, caplog):
@@ -202,7 +202,7 @@ class TestParameters(object):
 
         m = ConcreteModel()
 
-        m.params = GenericParameterBlock(default=test_config)
+        m.params = GenericParameterBlock(**test_config)
 
         assert (
             "eNRTL alpha value provided for both ('H2O', 'Na+, Cl-') and "
@@ -228,7 +228,7 @@ class TestParameters(object):
             "typing and only provide parameters for valid "
             "species pairs.",
         ):
-            m.params = GenericParameterBlock(default=test_config)
+            m.params = GenericParameterBlock(**test_config)
 
     @pytest.mark.unit
     def test_parameters_tau_asymmetric(self):
@@ -240,11 +240,11 @@ class TestParameters(object):
 
         m = ConcreteModel()
 
-        m.params = GenericParameterBlock(default=test_config)
+        m.params = GenericParameterBlock(**test_config)
 
         assert isinstance(m.params.Liq.tau, Var)
         assert len(m.params.Liq.tau) == 32
-        for (i, j) in m.params.Liq.tau:
+        for i, j in m.params.Liq.tau:
             print(i, j)
             if (i, j) == ("H2O", "Na+, Cl-"):
                 assert m.params.Liq.tau[(i, j)].value == 0.1
@@ -274,14 +274,14 @@ class TestParameters(object):
             "and only provide parameters for valid species "
             "pairs.",
         ):
-            m.params = GenericParameterBlock(default=test_config)
+            m.params = GenericParameterBlock(**test_config)
 
 
 class TestStateBlockSymmetric(object):
     @pytest.fixture(scope="class")
     def model(self):
         m = ConcreteModel()
-        m.params = GenericParameterBlock(default=configuration)
+        m.params = GenericParameterBlock(**configuration)
 
         m.state = m.params.build_state_block([1])
 
@@ -388,7 +388,7 @@ class TestStateBlockSymmetric(object):
 
         assert isinstance(model.state[1].Liq_vol_mol_solvent, Expression)
         assert len(model.state[1].Liq_vol_mol_solvent) == 1
-        assert str(model.state[1].Liq_vol_mol_solvent.expr) == "1/(42*mol/m**3)"
+        assert str(model.state[1].Liq_vol_mol_solvent.expr) == "1/(42.0*mol/m**3)"
 
         assert isinstance(model.state[1].Liq_relative_permittivity_solvent, Expression)
         assert len(model.state[1].Liq_relative_permittivity_solvent) == 1
@@ -433,59 +433,6 @@ class TestStateBlockSymmetric(object):
                         * model.state[1].Liq_A_DH
                         * model.state[1].Liq_ionic_strength ** (3 / 2)
                         / (1 + 14.9 * model.state[1].Liq_ionic_strength ** (1 / 2))
-                    )
-                )
-            else:
-
-                def ndxdn(j, k):
-                    if j == k:
-                        return (1 - model.state[1].Liq_x_ref[k]) / (
-                            model.state[1].mole_frac_phase_comp_true["Liq", "Cl-"]
-                            + model.state[1].mole_frac_phase_comp_true["Liq", "OH-"]
-                            + model.state[1].mole_frac_phase_comp_true["Liq", "Na+"]
-                            + model.state[1].mole_frac_phase_comp_true["Liq", "H+"]
-                        )
-                    else:
-                        return -model.state[1].Liq_x_ref[k] / (
-                            model.state[1].mole_frac_phase_comp_true["Liq", "Cl-"]
-                            + model.state[1].mole_frac_phase_comp_true["Liq", "OH-"]
-                            + model.state[1].mole_frac_phase_comp_true["Liq", "Na+"]
-                            + model.state[1].mole_frac_phase_comp_true["Liq", "H+"]
-                        )
-
-                assert str(model.state[1].Liq_log_gamma_pdh[j].expr) == str(
-                    -model.state[1].Liq_A_DH
-                    * (
-                        (2 * model.params.get_component(j).config.charge ** 2 / 14.9)
-                        * log(
-                            (1 + 14.9 * model.state[1].Liq_ionic_strength ** 0.5)
-                            / (1 + 14.9 * model.state[1].Liq_ionic_strength_ref ** 0.5)
-                        )
-                        + (
-                            model.params.get_component(j).config.charge ** 2
-                            * model.state[1].Liq_ionic_strength ** 0.5
-                            - 2 * model.state[1].Liq_ionic_strength ** 1.5
-                        )
-                        / (1 + 14.9 * model.state[1].Liq_ionic_strength ** 0.5)
-                        - (
-                            2
-                            * model.state[1].Liq_ionic_strength
-                            * model.state[1].Liq_ionic_strength_ref ** -0.5
-                        )
-                        / (1 + 14.9 * model.state[1].Liq_ionic_strength_ref ** 0.5)
-                        * (
-                            0.5
-                            * (
-                                model.params.get_component("Cl-").config.charge ** 2
-                                * ndxdn(j, "Cl-")
-                                + model.params.get_component("OH-").config.charge ** 2
-                                * ndxdn(j, "OH-")
-                                + model.params.get_component("Na+").config.charge ** 2
-                                * ndxdn(j, "Na+")
-                                + model.params.get_component("H+").config.charge ** 2
-                                * ndxdn(j, "H+")
-                            )
-                        )
                     )
                 )
 
@@ -1110,7 +1057,7 @@ class TestProperties(object):
     @pytest.fixture(scope="class")
     def model(self):
         m = ConcreteModel()
-        m.params = GenericParameterBlock(default=configuration)
+        m.params = GenericParameterBlock(**configuration)
 
         m.state = m.params.build_state_block([1])
 

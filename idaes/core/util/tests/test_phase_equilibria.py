@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 This module contains phase equilibria utility functions for use in IDAES models.
@@ -33,7 +33,7 @@ from idaes.core import LiquidPhase, VaporPhase, Component, PhaseType as PT
 from idaes.models.properties.modular_properties.state_definitions import FTPx
 from idaes.models.properties.modular_properties.eos.ideal import Ideal
 from idaes.models.properties.modular_properties.eos.ceos import Cubic, CubicType
-from idaes.models.properties.modular_properties.phase_equil import smooth_VLE
+from idaes.models.properties.modular_properties.phase_equil.smooth_VLE import SmoothVLE
 from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
     IdealBubbleDew,
     LogBubbleDew,
@@ -51,11 +51,11 @@ from idaes.models.properties.modular_properties.base.generic_property import (
 )
 
 from idaes.core.util.phase_equilibria import TXYDataClass, Txy_data
+from idaes.models.properties.modular_properties.eos.ceos import cubic_roots_available
 
 
 @pytest.mark.unit
 def test_Txy_dataclass():
-
     TD = TXYDataClass(
         "benzene", "toluene", pyunits.kg / pyunits.m / pyunits.s**2, pyunits.K, 101325
     )
@@ -146,13 +146,13 @@ def test_Txy_data():
         "temperature_ref": (300, pyunits.K),
         # Defining phase equilibria
         "phases_in_equilibrium": [("Vap", "Liq")],
-        "phase_equilibrium_state": {("Vap", "Liq"): smooth_VLE},
+        "phase_equilibrium_state": {("Vap", "Liq"): SmoothVLE},
         "bubble_dew_method": IdealBubbleDew,
     }
 
     model = ConcreteModel()
 
-    model.params = GenericParameterBlock(default=configuration)
+    model.params = GenericParameterBlock(**configuration)
 
     TD = Txy_data(
         model,
@@ -189,6 +189,7 @@ def test_Txy_data():
 
 # Author: Alejandro Garciadiego
 @pytest.mark.component
+@pytest.mark.skipif(not cubic_roots_available(), reason="Cubic functions not available")
 def test_Txy_data_no_dew():
     configuration = {
         # Specifying components
@@ -253,7 +254,7 @@ def test_Txy_data_no_dew():
         "temperature_ref": (298.15, pyunits.K),
         # Defining phase equilibria
         "phases_in_equilibrium": [("Vap", "Liq")],
-        "phase_equilibrium_state": {("Vap", "Liq"): smooth_VLE},
+        "phase_equilibrium_state": {("Vap", "Liq"): SmoothVLE},
         "bubble_dew_method": LogBubbleDew,
         "parameter_data": {
             "PR_kappa": {
@@ -267,7 +268,7 @@ def test_Txy_data_no_dew():
 
     model = ConcreteModel()
 
-    model.params = GenericParameterBlock(default=configuration)
+    model.params = GenericParameterBlock(**configuration)
 
     # Again, add more calculation points because the PR for single-phase
     # component VLE initialization hasn't been accepted
@@ -308,6 +309,7 @@ def test_Txy_data_no_dew():
 
 # Author: Alejandro Garciadiego
 @pytest.mark.component
+@pytest.mark.skipif(not cubic_roots_available(), reason="Cubic functions not available")
 def test_Txy_data_no_bub():
     configuration = {
         # Specifying components
@@ -371,7 +373,7 @@ def test_Txy_data_no_bub():
         "temperature_ref": (298.15, pyunits.K),
         # Defining phase equilibria
         "phases_in_equilibrium": [("Vap", "Liq")],
-        "phase_equilibrium_state": {("Vap", "Liq"): smooth_VLE},
+        "phase_equilibrium_state": {("Vap", "Liq"): SmoothVLE},
         "bubble_dew_method": LogBubbleDew,
         "parameter_data": {
             "PR_kappa": {
@@ -385,7 +387,7 @@ def test_Txy_data_no_bub():
 
     model = ConcreteModel()
 
-    model.params = GenericParameterBlock(default=configuration)
+    model.params = GenericParameterBlock(**configuration)
 
     # TODO: There probably should be a config option to run initialization at
     # each x or to use the initialization from the previous x. In the meantime,

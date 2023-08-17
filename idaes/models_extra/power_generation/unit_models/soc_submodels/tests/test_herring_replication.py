@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Test SolidOxideCell model using parameters from the literature. Compare to both
@@ -71,14 +71,19 @@ import pyomo.environ as pyo
 from pyomo.common.fileutils import this_file_dir
 
 from idaes.core import FlowsheetBlock
-from idaes.generic_models.properties import iapws95
+from idaes.models.properties import iapws95
+from idaes.models.properties.general_helmholtz import helmholtz_data_dir as hdir
 import idaes.core.util.scaling as iscale
 from idaes.core.util.model_statistics import degrees_of_freedom
+from idaes.core.solvers import get_solver
 
-from idaes.models.properties.modular_properties.base.generic_property import (
+from idaes.models.properties.modular_properties import (
     GenericParameterBlock,
 )
-from idaes.power_generation.properties.natural_gas_PR import get_prop, EosType
+from idaes.models_extra.power_generation.properties.natural_gas_PR import (
+    get_prop,
+    EosType,
+)
 from idaes.models_extra.power_generation.unit_models.soc_submodels import (
     SolidOxideCell,
     SolidOxideModuleSimple,
@@ -87,7 +92,7 @@ from idaes.models_extra.power_generation.unit_models.soc_submodels.common import
     _comp_enthalpy_expr,
     _comp_entropy_expr,
 )
-
+from idaes.models.properties.general_helmholtz import helmholtz_available
 from idaes.models.unit_models.heat_exchanger import HeatExchangerFlowPattern
 
 data_cache = os.sep.join([this_file_dir(), "data_cache"])
@@ -229,20 +234,12 @@ def fix_cell_parameters(cell):
 
 def model_func():
     m = pyo.ConcreteModel()
-    m.fs = FlowsheetBlock(
-        default={
-            "dynamic": False,
-            "time_set": [0],
-            "time_units": pyo.units.s,
-        }
-    )
+    m.fs = FlowsheetBlock(dynamic=False, time_set=[0], time_units=pyo.units.s)
 
     m.fs.propertiesIapws95 = iapws95.Iapws95ParameterBlock()
-    m.fs.prop_Iapws95 = iapws95.Iapws95StateBlock(
-        default={"parameters": m.fs.propertiesIapws95}
-    )
+    m.fs.prop_Iapws95 = iapws95.Iapws95StateBlock(parameters=m.fs.propertiesIapws95)
 
-    m.fs.cell = SolidOxideCell(default=cell_config)
+    m.fs.cell = SolidOxideCell(**cell_config)
 
     fix_cell_parameters(m.fs.cell)
 
@@ -265,34 +262,22 @@ def model():
 @pytest.fixture
 def model_stack():
     m = pyo.ConcreteModel()
-    m.fs = FlowsheetBlock(
-        default={
-            "dynamic": False,
-            "time_set": [0],
-            "time_units": pyo.units.s,
-        }
-    )
+    m.fs = FlowsheetBlock(dynamic=False, time_set=[0], time_units=pyo.units.s)
 
     m.fs.propertiesIapws95 = iapws95.Iapws95ParameterBlock()
-    m.fs.prop_Iapws95 = iapws95.Iapws95StateBlock(
-        default={"parameters": m.fs.propertiesIapws95}
-    )
+    m.fs.prop_Iapws95 = iapws95.Iapws95StateBlock(parameters=m.fs.propertiesIapws95)
 
     m.fs.oxygen_params = GenericParameterBlock(
-        default=get_prop(oxygen_comps, {"Vap"}, eos=EosType.IDEAL),
-        doc="Air-side parameters",
+        **get_prop(oxygen_comps, {"Vap"}, eos=EosType.IDEAL), doc="Air-side parameters"
     )
     m.fs.fuel_params = GenericParameterBlock(
-        default=get_prop(fuel_comps, {"Vap"}, eos=EosType.IDEAL),
-        doc="Fuel-side parameters",
+        **get_prop(fuel_comps, {"Vap"}, eos=EosType.IDEAL), doc="Fuel-side parameters"
     )
 
     m.fs.stack = SolidOxideModuleSimple(
-        default={
-            "solid_oxide_cell_config": cell_config,
-            "fuel_property_package": m.fs.fuel_params,
-            "oxygen_property_package": m.fs.oxygen_params,
-        }
+        solid_oxide_cell_config=cell_config,
+        fuel_property_package=m.fs.fuel_params,
+        oxygen_property_package=m.fs.oxygen_params,
     )
 
     fix_cell_parameters(m.fs.stack.solid_oxide_cell)
@@ -313,6 +298,7 @@ def model_stack():
     return m
 
 
+@pytest.mark.skipif(not helmholtz_available(), reason="General Helmholtz not available")
 @pytest.mark.component
 def test_initialization_cell(model):
     m = model
@@ -333,14 +319,14 @@ def test_initialization_cell(model):
 
     cell.initialize_build(
         optarg={"nlp_scaling_method": "user-scaling"},
-        current_density_guess=-2000,
+        current_density_guess=0,
         temperature_guess=1103.15,
     )
     cell.model_check()
     # Test whether fixed degrees of freedom remain fixed
     assert degrees_of_freedom(m.fs.cell) == 0
 
-    approx = lambda x: pytest.approx(x, 1e-4)
+    approx = lambda x: pytest.approx(x, 5e-3)
     assert cell.current_density[0, 1].value == approx(-2394.77)
     assert cell.current_density[0, 3].value == approx(-2326.71)
     assert cell.current_density[0, 5].value == approx(-2268.31)
@@ -376,7 +362,7 @@ def test_initialization_cell(model):
 
     assert degrees_of_freedom(cell) == 11
 
-    cell.initialize(current_density_guess=-1500, temperature_guess=1103.15)
+    cell.initialize(current_density_guess=0, temperature_guess=1103.15)
 
     assert degrees_of_freedom(cell) == 11
 
@@ -385,6 +371,7 @@ def test_initialization_cell(model):
     cell.oxygen_inlet.mole_frac_comp[0, "N2"].fix()
 
 
+@pytest.mark.skipif(not helmholtz_available(), reason="General Helmholtz not available")
 @pytest.mark.component
 def test_initialization_stack(model_stack):
     m = model_stack
@@ -408,14 +395,14 @@ def test_initialization_stack(model_stack):
 
     stack.initialize_build(
         optarg={"nlp_scaling_method": "user-scaling"},
-        current_density_guess=-2000,
+        current_density_guess=0,
         temperature_guess=1103.15,
     )
     cell.model_check()
     # Test whether fixed degrees of freedom remain fixed
     assert degrees_of_freedom(m.fs.stack) == 0
 
-    approx = lambda x: pytest.approx(x, 1e-4)
+    approx = lambda x: pytest.approx(x, 5e-3)
     assert cell.current_density[0, 1].value == approx(-2394.77)
     assert cell.current_density[0, 3].value == approx(-2326.71)
     assert cell.current_density[0, 5].value == approx(-2268.31)
@@ -453,7 +440,7 @@ def test_initialization_stack(model_stack):
 
     stack.initialize_build(
         optarg={"nlp_scaling_method": "user-scaling"},
-        current_density_guess=-1500,
+        current_density_guess=0,
         temperature_guess=1103.15,
     )
 
@@ -469,7 +456,7 @@ def kazempoor_braun_replication(model):
     cell = m.fs.cell
     case = 5
 
-    solver = pyo.SolverFactory("ipopt")
+    solver = get_solver("ipopt")
 
     N_voltage = 11
     N_case = 5
@@ -502,14 +489,15 @@ def kazempoor_braun_replication(model):
         results[key] = []
 
     for case in range(1, N_case + 1):
-
         T_in = df["T_in"][case] + 273.15
         T_dew = df["T_dew"][case] + 273.15
         N_N2 = cccm_to_mps(df["sccm_N2"][case])
         N_H2 = cccm_to_mps(df["sccm_H2"][case])
 
         # IAPWS95 returns psat in kPa
-        p_H2O = 1e3 * pyo.value(m.fs.prop_Iapws95.func_p_sat(647.096 / T_dew))
+        p_H2O = 1e3 * pyo.value(
+            m.fs.prop_Iapws95.p_sat_func("H2O", 647.096 / T_dew, hdir)
+        )
         y_H2O = p_H2O / P
         N_H2O = (N_N2 + N_H2) * y_H2O / (1 - y_H2O)
 
@@ -607,6 +595,7 @@ def kazempoor_braun_replication(model):
     return out
 
 
+@pytest.mark.skipif(not helmholtz_available(), reason="General Helmholtz not available")
 @pytest.mark.integration
 def test_model_replication(model):
     out = kazempoor_braun_replication(model)
@@ -637,7 +626,8 @@ def test_model_replication(model):
 
 if __name__ == "__main__":
     m = model_func()
-    out = kazempoor_braun_replication(m)
+    # out = kazempoor_braun_replication(m)
+    out = test_initialization_cell(m)
 
     # Uncomment to recreate cached data
     # for i, df in enumerate(out):

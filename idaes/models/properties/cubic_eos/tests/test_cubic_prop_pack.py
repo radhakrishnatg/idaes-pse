@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 import pytest
 
@@ -25,12 +25,13 @@ from pyomo.environ import (
 
 from idaes.core import FlowsheetBlock, Component
 from idaes.models.properties.cubic_eos.cubic_prop_pack import (
-    cubic_roots_available,
     CubicParameterBlock,
     CubicStateBlock,
     CubicEoS,
     EoS_param,
+    CubicEoSInitializer,
 )
+from idaes.models.properties.modular_properties.eos.ceos import cubic_roots_available
 
 
 # Set module level pyest marker
@@ -46,11 +47,14 @@ def test_CubicEoS():
 
 
 class TestParameterBlock(object):
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.params = CubicParameterBlock()
 
@@ -62,13 +66,16 @@ class TestParameterBlock(object):
         for p in m.fs.params.phase_list:
             assert p in ["Vap", "Liq"]
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_VL(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": ("Vap", "Liq")})
+        m.fs.params = CubicParameterBlock(valid_phase=("Vap", "Liq"))
 
         assert m.fs.params.state_block_class is CubicStateBlock
         assert m.fs.params.config.valid_phase == ("Vap", "Liq")
@@ -78,13 +85,16 @@ class TestParameterBlock(object):
         for p in m.fs.params.phase_list:
             assert p in ["Vap", "Liq"]
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_LV(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": ("Liq", "Vap")})
+        m.fs.params = CubicParameterBlock(valid_phase=("Liq", "Vap"))
 
         assert m.fs.params.state_block_class is CubicStateBlock
         assert m.fs.params.config.valid_phase == ("Liq", "Vap")
@@ -94,13 +104,16 @@ class TestParameterBlock(object):
         for p in m.fs.params.phase_list:
             assert p in ["Vap", "Liq"]
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_L(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": ("Liq")})
+        m.fs.params = CubicParameterBlock(valid_phase="Liq")
 
         assert m.fs.params.state_block_class is CubicStateBlock
         assert m.fs.params.config.valid_phase == ("Liq")
@@ -110,13 +123,16 @@ class TestParameterBlock(object):
         for p in m.fs.params.phase_list:
             assert p in ["Liq"]
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_V(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": ("Vap")})
+        m.fs.params = CubicParameterBlock(valid_phase="Vap")
 
         assert m.fs.params.state_block_class is CubicStateBlock
         assert m.fs.params.config.valid_phase == ("Vap")
@@ -132,7 +148,7 @@ class TestStateBlock_LV_PR(object):
     def model(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.params = CubicParameterBlock()
 
@@ -167,9 +183,14 @@ class TestStateBlock_LV_PR(object):
 
         return m
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
+
+        assert model.fs.props.default_initializer is CubicEoSInitializer
 
         assert isinstance(model.fs.props[1].flow_mol, Var)
         assert len(model.fs.props[1].flow_mol) == 1
@@ -300,6 +321,9 @@ class TestStateBlock_LV_PR(object):
                 - model.fs.props[1]._log_equilibrium_cubic("Liq", j)
             )
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_common_cubic(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -326,9 +350,9 @@ class TestStateBlock_L_PR(object):
     def model(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": "Liq"})
+        m.fs.params = CubicParameterBlock(valid_phase="Liq")
 
         m.fs.params.a = Component()
         m.fs.params.b = Component()
@@ -361,6 +385,9 @@ class TestStateBlock_L_PR(object):
 
         return m
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -416,6 +443,9 @@ class TestStateBlock_L_PR(object):
         assert len(model.fs.props[1]._teq) == 1
         assert str(model.fs.props[1]._teq.expr) == str(model.fs.props[1].temperature)
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_common_cubic(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -441,9 +471,9 @@ class TestStateBlock_V_PR(object):
     def model(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": "Vap"})
+        m.fs.params = CubicParameterBlock(valid_phase="Vap")
 
         m.fs.params.a = Component()
         m.fs.params.b = Component()
@@ -476,6 +506,9 @@ class TestStateBlock_V_PR(object):
 
         return m
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -531,6 +564,9 @@ class TestStateBlock_V_PR(object):
         assert len(model.fs.props[1]._teq) == 1
         assert str(model.fs.props[1]._teq.expr) == str(model.fs.props[1].temperature)
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_common_cubic(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -556,7 +592,7 @@ class TestStateBlock_LV_SRK(object):
     def model(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
         m.fs.params = CubicParameterBlock()
 
@@ -591,6 +627,9 @@ class TestStateBlock_LV_SRK(object):
 
         return m
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -724,6 +763,9 @@ class TestStateBlock_LV_SRK(object):
                 - model.fs.props[1]._log_equilibrium_cubic("Liq", j)
             )
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_common_cubic(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -750,9 +792,9 @@ class TestStateBlock_L_SRK(object):
     def model(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": "Liq"})
+        m.fs.params = CubicParameterBlock(valid_phase="Liq")
 
         m.fs.params.a = Component()
         m.fs.params.b = Component()
@@ -785,6 +827,9 @@ class TestStateBlock_L_SRK(object):
 
         return m
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -840,6 +885,9 @@ class TestStateBlock_L_SRK(object):
         assert len(model.fs.props[1]._teq) == 1
         assert str(model.fs.props[1]._teq.expr) == str(model.fs.props[1].temperature)
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_common_cubic(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -865,9 +913,9 @@ class TestStateBlock_V_SRK(object):
     def model(self):
         m = ConcreteModel()
 
-        m.fs = FlowsheetBlock(default={"dynamic": False})
+        m.fs = FlowsheetBlock(dynamic=False)
 
-        m.fs.params = CubicParameterBlock(default={"valid_phase": "Vap"})
+        m.fs.params = CubicParameterBlock(valid_phase="Vap")
 
         m.fs.params.a = Component()
         m.fs.params.b = Component()
@@ -900,6 +948,9 @@ class TestStateBlock_V_SRK(object):
 
         return m
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_build_default(self, model):
         model.fs.props = model.fs.params.build_state_block([1])
@@ -955,6 +1006,9 @@ class TestStateBlock_V_SRK(object):
         assert len(model.fs.props[1]._teq) == 1
         assert str(model.fs.props[1]._teq.expr) == str(model.fs.props[1].temperature)
 
+    @pytest.mark.skipif(
+        not cubic_roots_available(), reason="Cubic functions not available"
+    )
     @pytest.mark.unit
     def test_common_cubic(self, model):
         model.fs.props = model.fs.params.build_state_block([1])

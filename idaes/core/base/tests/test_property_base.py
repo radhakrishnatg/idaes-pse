@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for flowsheet_model.
@@ -18,7 +18,7 @@ Author: Andrew Lee
 import pytest
 import types
 
-from pyomo.environ import Block, ConcreteModel, Constraint, Set, Var, units as pyunits
+from pyomo.environ import ConcreteModel, Constraint, Set, Var, units as pyunits
 from pyomo.common.config import ConfigBlock
 from pyomo.network import Port
 
@@ -137,8 +137,8 @@ def test_get_phase_component_set_subset():
     m.p.get_metadata = types.MethodType(get_metadata, m.p)
 
     m.p.p1 = Phase()
-    m.p.p2 = Phase(default={"component_list": ["a", "b"]})
-    m.p.p3 = Phase(default={"component_list": ["c"]})
+    m.p.p2 = Phase(component_list=["a", "b"])
+    m.p.p3 = Phase(component_list=["c"])
     m.p.a = Component()
     m.p.b = Component()
     m.p.c = Component()
@@ -214,97 +214,6 @@ def test_get_phase():
         "appear to be an instance of a Phase object.",
     ):
         m.p.get_phase("a")
-
-
-@pytest.mark.unit
-def test_validate_parameter_block_no_component_list():
-    m = ConcreteModel()
-    m.p = ParameterBlock()
-
-    with pytest.raises(
-        PropertyPackageError, match="Property package p has not defined any Components."
-    ):
-        m.p._validate_parameter_block()
-
-
-@pytest.mark.unit
-def test_validate_parameter_block_no_phase_list():
-    m = ConcreteModel()
-    m.p = ParameterBlock()
-
-    m.meta_object = PropertyClassMetadata()
-    m.meta_object.add_default_units(
-        {
-            "time": pyunits.s,
-            "length": pyunits.m,
-            "mass": pyunits.kg,
-            "amount": pyunits.mol,
-            "temperature": pyunits.K,
-        }
-    )
-
-    def get_metadata(self):
-        return m.meta_object
-
-    m.p.get_metadata = types.MethodType(get_metadata, m.p)
-
-    m.p.c1 = Component()
-    m.p.c2 = Component()
-
-    with pytest.raises(
-        PropertyPackageError, match="Property package p has not defined any Phases."
-    ):
-        m.p._validate_parameter_block()
-
-
-@pytest.mark.unit
-def test_validate_parameter_block_invalid_component_object():
-    m = ConcreteModel()
-    m.p = ParameterBlock()
-
-    m.p.component_list = Set(initialize=["foo"])
-
-    m.p.phase_list = Set(initialize=["p1", "p2"])
-    m.p.foo = object()
-
-    with pytest.raises(TypeError):
-        m.p._validate_parameter_block()
-
-
-@pytest.mark.unit
-def test_validate_parameter_block_invalid_phase_object():
-    m = ConcreteModel()
-    m.p = ParameterBlock()
-
-    m.meta_object = PropertyClassMetadata()
-    m.meta_object.add_default_units(
-        {
-            "time": pyunits.s,
-            "length": pyunits.m,
-            "mass": pyunits.kg,
-            "amount": pyunits.mol,
-            "temperature": pyunits.K,
-        }
-    )
-
-    def get_metadata(self):
-        return m.meta_object
-
-    m.p.get_metadata = types.MethodType(get_metadata, m.p)
-
-    m.p.c1 = Component()
-    m.p.c2 = Component()
-
-    m.p.phase_list = Set(initialize=["foo"])
-    m.p.foo = object()
-
-    with pytest.raises(
-        TypeError,
-        match="Property package p has an object foo whose "
-        "name appears in phase_list but is not an "
-        "instance of Phase",
-    ):
-        m.p._validate_parameter_block()
 
 
 @pytest.mark.unit
@@ -541,7 +450,7 @@ def test_StateBlock_build_port_2index_subset():
 
     m.state_block = TestStateBlock([1, 2, 3], [10, 20])
 
-    # Need to add define_port_memebers method to all state blocks
+    # Need to add define_port_members method to all state blocks
     def define_port_members(blk):
         return {
             "ScalarVar": blk.scalar_var,
@@ -606,14 +515,14 @@ class _Parameters(PhysicalParameterBlock):
 
     @classmethod
     def define_metadata(cls, obj):
-        obj.add_properties(
+        obj.define_custom_properties(
             {
                 "a": {"method": "a_method"},
                 "recursion1": {"method": "_recursion1"},
                 "recursion2": {"method": "_recursion2"},
                 "not_callable": {"method": "test_obj"},
                 "raise_exception": {"method": "_raise_exception"},
-                "not_supported": {"method": False},
+                "not_supported": {"supported": False},
                 "does_not_create_component": {"method": "_does_not_create_component"},
             }
         )
@@ -638,7 +547,7 @@ class _StateTest(StateBlockData):
 def test_param_ref():
     m = ConcreteModel()
     m.pb = Parameters()
-    m.p = StateTest(default={"parameters": m.pb})
+    m.p = StateTest(parameters=m.pb)
 
     assert m.p.params == m.p.config.parameters
 
@@ -648,7 +557,7 @@ def test_validate_params():
     # Test that validate params has been triggered
     m = ConcreteModel()
     m.pb = Parameters()
-    m.p = StateTest(default={"parameters": m.pb})
+    m.p = StateTest(parameters=m.pb)
 
     # If validation has been triggered, Phase & Component objects should exist
     assert isinstance(m.pb.p1, Phase)
@@ -659,7 +568,7 @@ def test_validate_params():
 def test_has_inherent_reactions_state_block():
     m = ConcreteModel()
     m.pb = Parameters()
-    m.p = StateTest(default={"parameters": m.pb})
+    m.p = StateTest(parameters=m.pb)
 
     assert not m.p.has_inherent_reactions
 
@@ -697,7 +606,7 @@ class _State(StateBlockData):
 def m():
     m = ConcreteModel()
     m.pb = Parameters()
-    m.p = State(default={"parameters": m.pb})
+    m.p = State(parameters=m.pb)
 
     return m
 

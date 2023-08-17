@@ -1,18 +1,21 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Dynamic sub-flowsheet for a subcritical 300MWe steam cycle system
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-function-docstring
+
 # Import Python time library
 import time
 import matplotlib.pyplot as plt
@@ -22,7 +25,7 @@ import pyomo.environ as pyo
 from pyomo.network import Arc
 
 # Import IDAES
-from idaes.core.util import copy_port_values as _set_port
+from idaes.core.util.initialization import propagate_state as _set_port
 from idaes.models_extra.power_generation.unit_models.helm import (
     HelmTurbineStage as TurbineStage,
     HelmTurbineOutletStage as TurbineOutletStage,
@@ -30,8 +33,7 @@ from idaes.models_extra.power_generation.unit_models.helm import (
     HelmTurbineMultistage as TurbineMultistage,
     HelmMixer as Mixer,
     MomentumMixingType,
-    HelmValve as SteamValve,
-    HelmValve as WaterValve,
+    HelmValve as Valve,
     HelmIsentropicCompressor as WaterPump,
     HelmSplitter as Separator,
     HelmNtuCondenser as Condenser,
@@ -40,7 +42,11 @@ from idaes.models_extra.power_generation.unit_models import (
     WaterTank,
     FWH0DDynamic as FWH0D,
 )
-from idaes.models_extra.power_generation.control.pid_controller import PIDController
+from idaes.models.control.controller import (
+    PIDController,
+    ControllerType,
+    ControllerMVBoundType,
+)
 
 from idaes.core.util.model_statistics import degrees_of_freedom
 import idaes.logger as idaeslog
@@ -77,55 +83,43 @@ def add_unit_models(m):
 
     # Unit model for multistage turbine including throttle valve
     fs.turb = TurbineMultistage(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "num_parallel_inlet_stages": 1,
-            "throttle_valve_function": ValveFunctionType.custom,
-            "throttle_valve_function_callback": throttle_valve_function,
-            "num_hp": 14,
-            "num_ip": 9,
-            "num_lp": 5,
-            "hp_split_locations": [14],
-            "ip_split_locations": [6, 9],
-            "lp_split_locations": [2, 4, 5],
-            "hp_disconnect": [14],  # 14 is last hp stage
-            "hp_split_num_outlets": {14: 2},
-            "ip_split_num_outlets": {9: 3},
-        }
+        dynamic=False,
+        property_package=prop_water,
+        num_parallel_inlet_stages=1,
+        throttle_valve_function=ValveFunctionType.custom,
+        throttle_valve_function_callback=throttle_valve_function,
+        num_hp=14,
+        num_ip=9,
+        num_lp=5,
+        hp_split_locations=[14],
+        ip_split_locations=[6, 9],
+        lp_split_locations=[2, 4, 5],
+        hp_disconnect=[14],
+        hp_split_num_outlets={14: 2},
+        ip_split_num_outlets={9: 3},
     )
 
     # Unit model for regulating valve of BFPT (boiler feed pump turbine)
-    fs.bfp_turb_valve = SteamValve(
-        default={"dynamic": False, "property_package": prop_water}
-    )
+    fs.bfp_turb_valve = Valve(dynamic=False, property_package=prop_water)
 
     # Unit model for main stage of BFPT
-    fs.bfp_turb = TurbineStage(
-        default={"dynamic": False, "property_package": prop_water}
-    )
+    fs.bfp_turb = TurbineStage(dynamic=False, property_package=prop_water)
 
     # Unit model for outlet stage of BFPT
-    fs.bfp_turb_os = TurbineOutletStage(
-        default={"dynamic": False, "property_package": prop_water}
-    )
+    fs.bfp_turb_os = TurbineOutletStage(dynamic=False, property_package=prop_water)
 
     # Unit model for main condenser
     fs.condenser = Condenser(
-        default={
-            "dynamic": False,
-            "shell": {"has_pressure_change": False, "property_package": prop_water},
-            "tube": {"has_pressure_change": False, "property_package": prop_water},
-        }
+        dynamic=False,
+        shell={"has_pressure_change": False, "property_package": prop_water},
+        tube={"has_pressure_change": False, "property_package": prop_water},
     )
 
     # Unit model for auxiliary condenser
     fs.aux_condenser = Condenser(
-        default={
-            "dynamic": False,
-            "shell": {"has_pressure_change": False, "property_package": prop_water},
-            "tube": {"has_pressure_change": False, "property_package": prop_water},
-        }
+        dynamic=False,
+        shell={"has_pressure_change": False, "property_package": prop_water},
+        tube={"has_pressure_change": False, "property_package": prop_water},
     )
 
     # Unit model for condenser hotwell (hotwell tank modeled separately)
@@ -135,128 +129,92 @@ def add_unit_models(m):
     # We impose the constraints to let the mixed pressure equal to
     # the main condenser pressure and makeup water pressure
     fs.condenser_hotwell = Mixer(
-        default={
-            "dynamic": False,
-            "momentum_mixing_type": MomentumMixingType.none,
-            "inlet_list": ["main_condensate", "makeup", "aux_condensate"],
-            "property_package": prop_water,
-        }
+        dynamic=False,
+        momentum_mixing_type=MomentumMixingType.none,
+        inlet_list=["main_condensate", "makeup", "aux_condensate"],
+        property_package=prop_water,
     )
 
     # Unit model for water control valve between makeup tank and hotwell
-    fs.makeup_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.makeup_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Unit model for hotwell tank with holdup for dynamic model
     # Modeled as a simple tank with constant cross section area and tank level
     fs.hotwell_tank = WaterTank(
-        default={
-            "tank_type": "simple_tank",
-            "has_holdup": True,
-            "property_package": prop_water,
-        }
+        tank_type="simple_tank", has_holdup=True, property_package=prop_water
     )
 
     # Unit model for condensate pump
-    fs.cond_pump = WaterPump(default={"dynamic": False, "property_package": prop_water})
+    fs.cond_pump = WaterPump(dynamic=False, property_package=prop_water)
 
     # Unit model for water control valve after hotwell tank
     # Used to control deaerator level
-    fs.cond_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.cond_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Unit model for feed water heater 1
     fs.fwh1 = FWH0D(
-        default={
-            "has_desuperheat": False,
-            "has_drain_cooling": False,
-            "has_drain_mixer": True,
-            "condense": {
-                "tube": {"has_pressure_change": True},
-                "shell": {"has_pressure_change": True},
-                "has_holdup": True,
-            },
-            "property_package": prop_water,
-        }
+        has_desuperheat=False,
+        has_drain_cooling=False,
+        has_drain_mixer=True,
+        condense={
+            "tube": {"has_pressure_change": True},
+            "shell": {"has_pressure_change": True},
+            "has_holdup": True,
+        },
+        property_package=prop_water,
     )
 
     # Unit model for drain pump of FWH1
-    fs.fwh1_drain_pump = WaterPump(
-        default={"dynamic": False, "property_package": prop_water}
-    )
+    fs.fwh1_drain_pump = WaterPump(dynamic=False, property_package=prop_water)
 
     # Unit model for mixer of FWH1 drain and condensate
     fs.fwh1_drain_return = Mixer(
-        default={
-            "dynamic": False,
-            "inlet_list": ["feedwater", "fwh1_drain"],
-            "property_package": prop_water,
-            "momentum_mixing_type": MomentumMixingType.equality,
-        }
+        dynamic=False,
+        inlet_list=["feedwater", "fwh1_drain"],
+        property_package=prop_water,
+        momentum_mixing_type=MomentumMixingType.equality,
     )
 
     # Unit model for feed water heater 2
     fs.fwh2 = FWH0D(
-        default={
-            "has_desuperheat": False,
-            "has_drain_cooling": True,
-            "has_drain_mixer": True,
-            "condense": {
-                "tube": {"has_pressure_change": True},
-                "shell": {"has_pressure_change": True},
-                "has_holdup": True,
-            },
-            "cooling": {"dynamic": False, "has_holdup": False},
-            "property_package": prop_water,
-        }
+        has_desuperheat=False,
+        has_drain_cooling=True,
+        has_drain_mixer=True,
+        condense={
+            "tube": {"has_pressure_change": True},
+            "shell": {"has_pressure_change": True},
+            "has_holdup": True,
+        },
+        cooling={"dynamic": False, "has_holdup": False},
+        property_package=prop_water,
     )
 
     # Unit model for water control valve between drain of fwh2 and fwh1
-    fs.fwh2_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.fwh2_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Unit model for feed water heater 3
     fs.fwh3 = FWH0D(
-        default={
-            "has_desuperheat": False,
-            "has_drain_cooling": True,
-            "has_drain_mixer": False,
-            "condense": {
-                "tube": {"has_pressure_change": True},
-                "shell": {"has_pressure_change": True},
-                "has_holdup": True,
-            },
-            "cooling": {"dynamic": False, "has_holdup": False},
-            "property_package": prop_water,
-        }
+        has_desuperheat=False,
+        has_drain_cooling=True,
+        has_drain_mixer=False,
+        condense={
+            "tube": {"has_pressure_change": True},
+            "shell": {"has_pressure_change": True},
+            "has_holdup": True,
+        },
+        cooling={"dynamic": False, "has_holdup": False},
+        property_package=prop_water,
     )
 
     # Unit model for control valve between drain of fwh3 and fwh2
-    fs.fwh3_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.fwh3_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Unit model for deaerator also known as fwh4
@@ -265,101 +223,74 @@ def add_unit_models(m):
     # Using MomentumMixingType.equality for momentum_mixing_type
     # deaerator tank modeled separately for holdup in dyyamic model
     fs.fwh4_deair = Mixer(
-        default={
-            "dynamic": False,
-            "momentum_mixing_type": MomentumMixingType.equality,
-            "inlet_list": ["steam", "drain", "feedwater"],
-            "property_package": prop_water,
-        }
+        dynamic=False,
+        momentum_mixing_type=MomentumMixingType.equality,
+        inlet_list=["steam", "drain", "feedwater"],
+        property_package=prop_water,
     )
 
     # Unit model for deaerator water tank
     # Modeled as a horizontal cylindrical tank
     fs.da_tank = WaterTank(
-        default={
-            "tank_type": "horizontal_cylindrical_tank",
-            "has_holdup": True,
-            "property_package": prop_water,
-        }
+        tank_type="horizontal_cylindrical_tank",
+        has_holdup=True,
+        property_package=prop_water,
     )
 
     # Unit model for electrical feedwater booster pump
-    fs.booster = WaterPump(default={"dynamic": False, "property_package": prop_water})
+    fs.booster = WaterPump(dynamic=False, property_package=prop_water)
 
     # Unit model for main boiler feed water pump driven by steam turbine
-    fs.bfp = WaterPump(default={"dynamic": False, "property_package": prop_water})
+    fs.bfp = WaterPump(dynamic=False, property_package=prop_water)
 
     # Unit model for splitter for spray water stream for main attemperator
     fs.split_attemp = Separator(
-        default={
-            "dynamic": False,
-            "property_package": prop_water,
-            "outlet_list": ["FeedWater", "Spray"],
-        }
+        dynamic=False, property_package=prop_water, outlet_list=["FeedWater", "Spray"]
     )
 
     # Unit model for attemperator spray control valve
-    fs.spray_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.spray_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Unit model for feed water heater 5
     fs.fwh5 = FWH0D(
-        default={
-            "has_desuperheat": True,
-            "has_drain_cooling": True,
-            "has_drain_mixer": True,
-            "condense": {
-                "tube": {"has_pressure_change": True},
-                "shell": {"has_pressure_change": True},
-                "has_holdup": True,
-            },
-            "desuperheat": {"dynamic": False},
-            "cooling": {"dynamic": False, "has_holdup": False},
-            "property_package": prop_water,
-        }
+        has_desuperheat=True,
+        has_drain_cooling=True,
+        has_drain_mixer=True,
+        condense={
+            "tube": {"has_pressure_change": True},
+            "shell": {"has_pressure_change": True},
+            "has_holdup": True,
+        },
+        desuperheat={"dynamic": False},
+        cooling={"dynamic": False, "has_holdup": False},
+        property_package=prop_water,
     )
 
     # Unit model for water control valve drain of fwh5 and deaerator
-    fs.fwh5_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.fwh5_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Unit model for feed water heater 6
     fs.fwh6 = FWH0D(
-        default={
-            "has_desuperheat": True,
-            "has_drain_cooling": True,
-            "has_drain_mixer": False,
-            "condense": {
-                "tube": {"has_pressure_change": True},
-                "shell": {"has_pressure_change": True},
-                "has_holdup": True,
-            },
-            "desuperheat": {"dynamic": False},
-            "cooling": {"dynamic": False, "has_holdup": False},
-            "property_package": prop_water,
-        }
+        has_desuperheat=True,
+        has_drain_cooling=True,
+        has_drain_mixer=False,
+        condense={
+            "tube": {"has_pressure_change": True},
+            "shell": {"has_pressure_change": True},
+            "has_holdup": True,
+        },
+        desuperheat={"dynamic": False},
+        cooling={"dynamic": False, "has_holdup": False},
+        property_package=prop_water,
     )
 
     # Unit model for water control valve between drain of fwh6 and fwh5
-    fs.fwh6_valve = WaterValve(
-        default={
-            "dynamic": False,
-            "has_holdup": False,
-            "phase": "Liq",
-            "property_package": prop_water,
-        }
+    fs.fwh6_valve = Valve(
+        dynamic=False, has_holdup=False, phase="Liq", property_package=prop_water
     )
 
     # Important process variables, declared and used in PID controllers
@@ -386,67 +317,60 @@ def add_unit_models(m):
         # Add PID controllers if the flowsheet model is a dynamic model
         # PI controller to control level of fwh2
         fs.fwh2_ctrl = PIDController(
-            default={
-                "pv": fs.fwh2.condense.level,
-                "mv": fs.fwh2_valve.valve_opening,
-                "type": "PI",
-            }
+            process_var=fs.fwh2.condense.level,
+            manipulated_var=fs.fwh2_valve.valve_opening,
+            controller_type=ControllerType.PI,
+            calculate_initial_integral=False,
         )
 
         # PI controller to control level of fwh3
         fs.fwh3_ctrl = PIDController(
-            default={
-                "pv": fs.fwh3.condense.level,
-                "mv": fs.fwh3_valve.valve_opening,
-                "type": "PI",
-            }
+            process_var=fs.fwh3.condense.level,
+            manipulated_var=fs.fwh3_valve.valve_opening,
+            controller_type=ControllerType.PI,
+            calculate_initial_integral=False,
         )
 
         # PI controller to control level of fwh5
         fs.fwh5_ctrl = PIDController(
-            default={
-                "pv": fs.fwh5.condense.level,
-                "mv": fs.fwh5_valve.valve_opening,
-                "type": "PI",
-            }
+            process_var=fs.fwh5.condense.level,
+            manipulated_var=fs.fwh5_valve.valve_opening,
+            controller_type=ControllerType.PI,
+            calculate_initial_integral=False,
         )
 
         # PI controller to control level of fwh6
         fs.fwh6_ctrl = PIDController(
-            default={
-                "pv": fs.fwh6.condense.level,
-                "mv": fs.fwh6_valve.valve_opening,
-                "type": "PI",
-            }
+            process_var=fs.fwh6.condense.level,
+            manipulated_var=fs.fwh6_valve.valve_opening,
+            controller_type=ControllerType.PI,
+            calculate_initial_integral=False,
         )
 
         # PI controller to control level of deaerator tank
         fs.da_ctrl = PIDController(
-            default={
-                "pv": fs.da_tank.tank_level,
-                "mv": fs.cond_valve.valve_opening,
-                "type": "PI",
-            }
+            process_var=fs.da_tank.tank_level,
+            manipulated_var=fs.cond_valve.valve_opening,
+            controller_type=ControllerType.PI,
+            calculate_initial_integral=False,
         )
 
         # PI controller to control level of hotwell tank
         fs.makeup_ctrl = PIDController(
-            default={
-                "pv": fs.hotwell_tank.tank_level,
-                "mv": fs.makeup_valve.valve_opening,
-                "type": "PI",
-                "bounded_output": True,
-            }
+            process_var=fs.hotwell_tank.tank_level,
+            manipulated_var=fs.makeup_valve.valve_opening,
+            controller_type=ControllerType.PI,
+            mv_bound_type=ControllerMVBoundType.SMOOTH_BOUND,
+            calculate_initial_integral=False,
         )
 
         # PID controller to control main steam temperature
         fs.spray_ctrl = PIDController(
-            default={
-                "pv": fs.temperature_main_steam,
-                "mv": fs.spray_valve.valve_opening,
-                "type": "PID",
-                "bounded_output": True,
-            }
+            process_var=fs.temperature_main_steam,
+            manipulated_var=fs.spray_valve.valve_opening,
+            controller_type=ControllerType.PID,
+            mv_bound_type=ControllerMVBoundType.SMOOTH_BOUND,
+            calculate_initial_integral=False,
         )
 
     return m
@@ -455,15 +379,19 @@ def add_unit_models(m):
 def set_arcs_and_constraints(m):
     """Add arcs to connect streams on steam cycle sub-flowsheet"""
     fs = m.fs_main.fs_stc
-    fs.S017 = Arc(source=fs.turb.outlet_stage.outlet, destination=fs.condenser.inlet_1)
+    fs.S017 = Arc(
+        source=fs.turb.outlet_stage.outlet, destination=fs.condenser.hot_side_inlet
+    )
     fs.S053 = Arc(source=fs.bfp_turb.outlet, destination=fs.bfp_turb_os.inlet)
-    fs.S046 = Arc(source=fs.bfp_turb_os.outlet, destination=fs.aux_condenser.inlet_1)
+    fs.S046 = Arc(
+        source=fs.bfp_turb_os.outlet, destination=fs.aux_condenser.hot_side_inlet
+    )
     fs.S022 = Arc(
-        source=fs.condenser.outlet_1,
+        source=fs.condenser.hot_side_outlet,
         destination=fs.condenser_hotwell.main_condensate,
     )
     fs.S047 = Arc(
-        source=fs.aux_condenser.outlet_1,
+        source=fs.aux_condenser.hot_side_outlet,
         destination=fs.condenser_hotwell.aux_condensate,
     )
     fs.S050b = Arc(
@@ -471,10 +399,11 @@ def set_arcs_and_constraints(m):
         destination=fs.condenser_hotwell.makeup,
     )
     fs.S031a = Arc(
-        source=fs.fwh1.condense.outlet_2, destination=fs.fwh1_drain_return.feedwater
+        source=fs.fwh1.condense.cold_side_outlet,
+        destination=fs.fwh1_drain_return.feedwater,
     )
     fs.S030 = Arc(
-        source=fs.fwh1.condense.outlet_1, destination=fs.fwh1_drain_pump.inlet
+        source=fs.fwh1.condense.hot_side_outlet, destination=fs.fwh1_drain_pump.inlet
     )
     fs.S045 = Arc(
         source=fs.fwh1_drain_pump.outlet, destination=fs.fwh1_drain_return.fwh1_drain
@@ -484,23 +413,34 @@ def set_arcs_and_constraints(m):
     fs.S016 = Arc(
         source=fs.turb.lp_split[5].outlet_2, destination=fs.fwh1.drain_mix.steam
     )
-    fs.S032 = Arc(source=fs.fwh2.cooling.outlet_1, destination=fs.fwh2_valve.inlet)
+    fs.S032 = Arc(
+        source=fs.fwh2.cooling.hot_side_outlet, destination=fs.fwh2_valve.inlet
+    )
     fs.S032b = Arc(source=fs.fwh2_valve.outlet, destination=fs.fwh1.drain_mix.drain)
     fs.S026 = Arc(source=fs.cond_pump.outlet, destination=fs.cond_valve.inlet)
-    fs.S029 = Arc(source=fs.cond_valve.outlet, destination=fs.fwh1.condense.inlet_2)
+    fs.S029 = Arc(
+        source=fs.cond_valve.outlet, destination=fs.fwh1.condense.cold_side_inlet
+    )
     fs.S031b = Arc(
-        source=fs.fwh1_drain_return.outlet, destination=fs.fwh2.cooling.inlet_2
+        source=fs.fwh1_drain_return.outlet, destination=fs.fwh2.cooling.cold_side_inlet
     )
     fs.S015 = Arc(
         source=fs.turb.lp_split[4].outlet_2, destination=fs.fwh2.drain_mix.steam
     )
-    fs.S034 = Arc(source=fs.fwh3.cooling.outlet_1, destination=fs.fwh3_valve.inlet)
-    fs.S034b = Arc(source=fs.fwh3_valve.outlet, destination=fs.fwh2.drain_mix.drain)
-    fs.S033 = Arc(source=fs.fwh2.condense.outlet_2, destination=fs.fwh3.cooling.inlet_2)
-    fs.S014 = Arc(
-        source=fs.turb.lp_split[2].outlet_2, destination=fs.fwh3.condense.inlet_1
+    fs.S034 = Arc(
+        source=fs.fwh3.cooling.hot_side_outlet, destination=fs.fwh3_valve.inlet
     )
-    fs.S035 = Arc(source=fs.fwh3.condense.outlet_2, destination=fs.fwh4_deair.feedwater)
+    fs.S034b = Arc(source=fs.fwh3_valve.outlet, destination=fs.fwh2.drain_mix.drain)
+    fs.S033 = Arc(
+        source=fs.fwh2.condense.cold_side_outlet,
+        destination=fs.fwh3.cooling.cold_side_inlet,
+    )
+    fs.S014 = Arc(
+        source=fs.turb.lp_split[2].outlet_2, destination=fs.fwh3.condense.hot_side_inlet
+    )
+    fs.S035 = Arc(
+        source=fs.fwh3.condense.cold_side_outlet, destination=fs.fwh4_deair.feedwater
+    )
     fs.S043 = Arc(source=fs.turb.ip_split[9].outlet_2, destination=fs.fwh4_deair.steam)
     fs.S011 = Arc(
         source=fs.turb.ip_split[9].outlet_3, destination=fs.bfp_turb_valve.inlet
@@ -511,19 +451,28 @@ def set_arcs_and_constraints(m):
     fs.S038 = Arc(source=fs.booster.outlet, destination=fs.bfp.inlet)
     fs.S037 = Arc(source=fs.bfp.outlet, destination=fs.split_attemp.inlet)
     fs.S054 = Arc(source=fs.split_attemp.Spray, destination=fs.spray_valve.inlet)
-    fs.S039 = Arc(source=fs.fwh5.cooling.outlet_1, destination=fs.fwh5_valve.inlet)
-    fs.S039b = Arc(source=fs.fwh5_valve.outlet, destination=fs.fwh4_deair.drain)
-    fs.S051 = Arc(source=fs.split_attemp.FeedWater, destination=fs.fwh5.cooling.inlet_2)
-    fs.S010 = Arc(
-        source=fs.turb.ip_split[6].outlet_2, destination=fs.fwh5.desuperheat.inlet_1
+    fs.S039 = Arc(
+        source=fs.fwh5.cooling.hot_side_outlet, destination=fs.fwh5_valve.inlet
     )
-    fs.S041 = Arc(source=fs.fwh6.cooling.outlet_1, destination=fs.fwh6_valve.inlet)
+    fs.S039b = Arc(source=fs.fwh5_valve.outlet, destination=fs.fwh4_deair.drain)
+    fs.S051 = Arc(
+        source=fs.split_attemp.FeedWater, destination=fs.fwh5.cooling.cold_side_inlet
+    )
+    fs.S010 = Arc(
+        source=fs.turb.ip_split[6].outlet_2,
+        destination=fs.fwh5.desuperheat.hot_side_inlet,
+    )
+    fs.S041 = Arc(
+        source=fs.fwh6.cooling.hot_side_outlet, destination=fs.fwh6_valve.inlet
+    )
     fs.S041b = Arc(source=fs.fwh6_valve.outlet, destination=fs.fwh5.drain_mix.drain)
     fs.S040 = Arc(
-        source=fs.fwh5.desuperheat.outlet_2, destination=fs.fwh6.cooling.inlet_2
+        source=fs.fwh5.desuperheat.cold_side_outlet,
+        destination=fs.fwh6.cooling.cold_side_inlet,
     )
     fs.S006 = Arc(
-        source=fs.turb.hp_split[14].outlet_2, destination=fs.fwh6.desuperheat.inlet_1
+        source=fs.turb.hp_split[14].outlet_2,
+        destination=fs.fwh6.desuperheat.hot_side_inlet,
     )
     # Call Pyomo function to apply above arc connections
     pyo.TransformationFactory("network.expand_arcs").apply_to(fs)
@@ -560,7 +509,7 @@ def set_arcs_and_constraints(m):
             == b.condenser_hotwell.aux_condensate_state[t].pressure * 1e-4
         )
 
-    # Constrait to set the mixed state pressure equal to the pressure of
+    # Constraint to set the mixed state pressure equal to the pressure of
     # auxiliary condenser
     @fs.condenser_hotwell.Constraint(fs.time)
     def mixer_pressure_constraint(b, t):
@@ -570,7 +519,7 @@ def set_arcs_and_constraints(m):
         )
 
     # Constraint to set deaerator tank outlet enthalpy equal to
-    # saturation enthalpy at inlet - 100 (sligtly sub-cooled)
+    # saturation enthalpy at inlet - 100 (slightly sub-cooled)
     # This constraint determines the steam extraction flow rate and
     # is very important to avoid flash of deaerator tank when load is
     # ramping down, which will causes convergence issue if the flash happens
@@ -653,14 +602,14 @@ def set_arcs_and_constraints(m):
     # approach temperature (DCA)
     def rule_dca_no_cool(b, t):
         return (
-            b.condense.shell.properties_out[t].temperature
-            - b.condense.tube.properties_in[t].temperature
+            b.condense.hot_side.properties_out[t].temperature
+            - b.condense.cold_side.properties_in[t].temperature
         )
 
     def rule_dca(b, t):
         return (
-            b.cooling.shell.properties_out[t].temperature
-            - b.cooling.tube.properties_in[t].temperature
+            b.cooling.hot_side.properties_out[t].temperature
+            - b.cooling.cold_side.properties_in[t].temperature
         )
 
     fs.fwh1.dca = pyo.Expression(fs.time, rule=rule_dca_no_cool)
@@ -783,17 +732,17 @@ def set_inputs(m):
 
     # Set inputs for main condenser
     # Cooling water condition
-    fs.condenser.inlet_2.flow_mol.fix(300000)
+    fs.condenser.cold_side_inlet.flow_mol.fix(300000)
     # Enthalpy at 24 C
-    fs.condenser.inlet_2.enth_mol.fix(1800)
-    fs.condenser.inlet_2.pressure.fix(500000)
+    fs.condenser.cold_side_inlet.enth_mol.fix(1800)
+    fs.condenser.cold_side_inlet.pressure.fix(500000)
     fs.condenser.area.fix(13000)
     fs.condenser.overall_heat_transfer_coefficient.fix(3100)
 
     # Set inputs for auxiliary condenser
-    fs.aux_condenser.inlet_2.flow_mol.fix(12000)
-    fs.aux_condenser.inlet_2.enth_mol.fix(1800)
-    fs.aux_condenser.inlet_2.pressure.fix(500000)
+    fs.aux_condenser.cold_side_inlet.flow_mol.fix(12000)
+    fs.aux_condenser.cold_side_inlet.enth_mol.fix(1800)
+    fs.aux_condenser.cold_side_inlet.pressure.fix(500000)
     fs.aux_condenser.area.fix(350)
     fs.aux_condenser.overall_heat_transfer_coefficient.fix(3100)
 
@@ -896,7 +845,7 @@ def set_inputs(m):
     fs.fwh5.desuperheat.overall_heat_transfer_coefficient.fix(145)
     fs.fwh5.cooling.overall_heat_transfer_coefficient.fix(675)
     fs.fwh5.condense.tube.deltaP[:].fix(0)
-    # Inputs reqired for dynamic model
+    # Inputs required for dynamic model
     fs.fwh5.condense.level.fix(0.275)
     fs.fwh5.condense.heater_diameter.fix(1.4)
     fs.fwh5.condense.vol_frac_shell.fix(0.675)
@@ -963,20 +912,20 @@ def set_inputs(m):
         fs.spray_ctrl.gain_d.fix(-1e-4)
         fs.spray_ctrl.setpoint.fix(810)
         fs.spray_ctrl.mv_ref.fix(0.25)
-        # Currently we have to set this minimum opening to avoid conveging to
+        # Currently we have to set this minimum opening to avoid converging to
         # negative spray water flow rate
         fs.spray_ctrl.mv_lb = 0.05
 
         # Set initial conditions for controller errors
         t0 = fs.time.first()
-        fs.fwh2_ctrl.integral_of_error[t0].fix(0)
-        fs.fwh3_ctrl.integral_of_error[t0].fix(0)
-        fs.fwh5_ctrl.integral_of_error[t0].fix(0)
-        fs.fwh6_ctrl.integral_of_error[t0].fix(0)
-        fs.da_ctrl.integral_of_error[t0].fix(0)
-        fs.makeup_ctrl.integral_of_error[t0].fix(0)
-        fs.spray_ctrl.integral_of_error[t0].fix(0)
-        fs.spray_ctrl.derivative_of_error[t0].fix(0)
+        fs.fwh2_ctrl.mv_integral_component[t0].fix(0)
+        fs.fwh3_ctrl.mv_integral_component[t0].fix(0)
+        fs.fwh5_ctrl.mv_integral_component[t0].fix(0)
+        fs.fwh6_ctrl.mv_integral_component[t0].fix(0)
+        fs.da_ctrl.mv_integral_component[t0].fix(0)
+        fs.makeup_ctrl.mv_integral_component[t0].fix(0)
+        fs.spray_ctrl.mv_integral_component[t0].fix(0)
+        fs.spray_ctrl.derivative_term[t0].fix(0)
 
     return m
 
@@ -1046,13 +995,13 @@ def initialize(m):
     fs.bfp_turb_os.control_volume.properties_out[:].pressure.unfix()
 
     # Initialize main condenser
-    _set_port(fs.condenser.inlet_1, fs.turb.outlet_stage.outlet)
+    _set_port(fs.condenser.hot_side_inlet, fs.turb.outlet_stage.outlet)
     fs.turb.outlet_stage.control_volume.properties_out[:].pressure.unfix()
     if m.dynamic is False:
         fs.condenser.initialize(unfix="pressure")
 
     # Initialize auxiliary condenser
-    _set_port(fs.aux_condenser.inlet_1, fs.bfp_turb_os.outlet)
+    _set_port(fs.aux_condenser.hot_side_inlet, fs.bfp_turb_os.outlet)
     if m.dynamic is False:
         fs.aux_condenser.initialize(unfix="pressure")
 
@@ -1063,8 +1012,8 @@ def initialize(m):
         fs.makeup_valve.Cv.unfix()
 
     # Initialize hotwell mixer
-    _set_port(fs.condenser_hotwell.main_condensate, fs.condenser.outlet_1)
-    _set_port(fs.condenser_hotwell.aux_condensate, fs.aux_condenser.outlet_1)
+    _set_port(fs.condenser_hotwell.main_condensate, fs.condenser.hot_side_outlet)
+    _set_port(fs.condenser_hotwell.aux_condensate, fs.aux_condenser.hot_side_outlet)
     _set_port(fs.condenser_hotwell.makeup, fs.makeup_valve.outlet)
     if m.dynamic is False:
         fs.condenser_hotwell.initialize(outlvl=outlvl, optarg=solver.options)
@@ -1097,23 +1046,23 @@ def initialize(m):
         fs.turb.lp_split[5].outlet_2.pressure[t0].value
     )
     fs.fwh1.drain_mix.drain.enth_mol[:] = 6117
-    _set_port(fs.fwh1.condense.inlet_2, fs.cond_valve.outlet)
+    _set_port(fs.fwh1.condense.cold_side_inlet, fs.cond_valve.outlet)
     _set_port(fs.fwh1.drain_mix.steam, fs.turb.lp_split[5].outlet_2)
 
     if m.dynamic is False:
         fs.fwh1.initialize(outlvl=outlvl, optarg=solver.options)
 
     # Initialize fwh1 drain pump
-    _set_port(fs.fwh1_drain_pump.inlet, fs.fwh1.condense.outlet_1)
+    _set_port(fs.fwh1_drain_pump.inlet, fs.fwh1.condense.hot_side_outlet)
     fs.fwh1_drain_pump.control_volume.properties_out[:].pressure.fix(
-        fs.fwh1.condense.tube.properties_out[t0].pressure.value
+        fs.fwh1.condense.cold_side.properties_out[t0].pressure.value
     )
     if m.dynamic is False:
         fs.fwh1_drain_pump.initialize(outlvl=outlvl, optarg=solver.options)
     fs.fwh1_drain_pump.control_volume.properties_out[:].pressure.unfix()
 
     # Initialize mixer to add fwh1 drain to feedwater
-    _set_port(fs.fwh1_drain_return.feedwater, fs.fwh1.condense.outlet_2)
+    _set_port(fs.fwh1_drain_return.feedwater, fs.fwh1.condense.cold_side_outlet)
     _set_port(fs.fwh1_drain_return.fwh1_drain, fs.fwh1_drain_pump.outlet)
     if m.dynamic is False:
         fs.fwh1_drain_return.initialize(outlvl=outlvl, optarg=solver.options)
@@ -1126,13 +1075,13 @@ def initialize(m):
         fs.turb.lp_split[4].outlet_2.pressure[t0].value
     )
     fs.fwh2.drain_mix.drain.enth_mol[:] = 9100
-    _set_port(fs.fwh2.cooling.inlet_2, fs.fwh1.condense.outlet_2)
+    _set_port(fs.fwh2.cooling.cold_side_inlet, fs.fwh1.condense.cold_side_outlet)
     _set_port(fs.fwh2.drain_mix.steam, fs.turb.lp_split[4].outlet_2)
     if m.dynamic is False:
         fs.fwh2.initialize(outlvl=outlvl, optarg=solver.options)
 
     # Initialize fwh2_valve
-    _set_port(fs.fwh2_valve.inlet, fs.fwh2.cooling.outlet_1)
+    _set_port(fs.fwh2_valve.inlet, fs.fwh2.cooling.hot_side_outlet)
     if m.dynamic is False:
         # use a lower flow rate to avoid too low exit pressure
         fs.fwh2_valve.inlet.flow_mol[:].value = (
@@ -1143,13 +1092,13 @@ def initialize(m):
         fs.fwh2_valve.Cv.unfix()
 
     # Set some initial inlet values and initialize fwh3
-    _set_port(fs.fwh3.cooling.inlet_2, fs.fwh2.condense.outlet_2)
-    _set_port(fs.fwh3.condense.inlet_1, fs.turb.lp_split[2].outlet_2)
+    _set_port(fs.fwh3.cooling.cold_side_inlet, fs.fwh2.condense.cold_side_outlet)
+    _set_port(fs.fwh3.condense.hot_side_inlet, fs.turb.lp_split[2].outlet_2)
     if m.dynamic is False:
         fs.fwh3.initialize(outlvl=outlvl, optarg=solver.options)
 
     # Initialize fwh3_valve
-    _set_port(fs.fwh3_valve.inlet, fs.fwh3.cooling.outlet_1)
+    _set_port(fs.fwh3_valve.inlet, fs.fwh3.cooling.hot_side_outlet)
     if m.dynamic is False:
         fs.fwh3_valve.Cv.fix()
         fs.fwh3_valve.initialize(outlvl=outlvl, optarg=solver.options)
@@ -1159,7 +1108,7 @@ def initialize(m):
     fs.fwh4_deair.drain.flow_mol[:] = 10
     fs.fwh4_deair.drain.pressure[:] = 1.3e6
     fs.fwh4_deair.drain.enth_mol[:] = 13630
-    _set_port(fs.fwh4_deair.feedwater, fs.fwh3.condense.outlet_2)
+    _set_port(fs.fwh4_deair.feedwater, fs.fwh3.condense.cold_side_outlet)
     _set_port(fs.fwh4_deair.steam, fs.turb.ip_split[9].outlet_2)
     if m.dynamic is False:
         fs.fwh4_deair.initialize(outlvl=outlvl, optarg=solver.options)
@@ -1200,26 +1149,26 @@ def initialize(m):
     fs.fwh5.drain_mix.drain.flow_mol[:] = 50
     fs.fwh5.drain_mix.drain.pressure[:] = 3.5e6
     fs.fwh5.drain_mix.drain.enth_mol[:] = 15000
-    _set_port(fs.fwh5.cooling.inlet_2, fs.split_attemp.FeedWater)
-    _set_port(fs.fwh5.desuperheat.inlet_1, fs.turb.ip_split[6].outlet_2)
+    _set_port(fs.fwh5.cooling.cold_side_inlet, fs.split_attemp.FeedWater)
+    _set_port(fs.fwh5.desuperheat.hot_side_inlet, fs.turb.ip_split[6].outlet_2)
     if m.dynamic is False:
         fs.fwh5.initialize(outlvl=outlvl, optarg=solver.options)
 
     # Initialize fwh5_valve
-    _set_port(fs.fwh5_valve.inlet, fs.fwh5.cooling.outlet_1)
+    _set_port(fs.fwh5_valve.inlet, fs.fwh5.cooling.hot_side_outlet)
     if m.dynamic is False:
         fs.fwh5_valve.Cv.fix()
         fs.fwh5_valve.initialize(outlvl=outlvl, optarg=solver.options)
         fs.fwh5_valve.Cv.unfix()
 
     # Set some initial inlet values and initialize fwh3
-    _set_port(fs.fwh6.cooling.inlet_2, fs.fwh5.desuperheat.outlet_2)
-    _set_port(fs.fwh6.desuperheat.inlet_1, fs.turb.hp_split[14].outlet_2)
+    _set_port(fs.fwh6.cooling.cold_side_inlet, fs.fwh5.desuperheat.cold_side_outlet)
+    _set_port(fs.fwh6.desuperheat.hot_side_inlet, fs.turb.hp_split[14].outlet_2)
     if m.dynamic is False:
         fs.fwh6.initialize(outlvl=outlvl, optarg=solver.options)
 
     # Initialize fwh6_valve
-    _set_port(fs.fwh6_valve.inlet, fs.fwh6.cooling.outlet_1)
+    _set_port(fs.fwh6_valve.inlet, fs.fwh6.cooling.hot_side_outlet)
     if m.dynamic is False:
         fs.fwh6_valve.Cv.fix()
         fs.fwh6_valve.initialize(outlvl=outlvl, optarg=solver.options)
@@ -1379,17 +1328,17 @@ def initialize(m):
         )
         _log.info(
             "FWH6 outlet enth_mol={}".format(
-                pyo.value(fs.fwh6.desuperheat.outlet_2.enth_mol[0])
+                pyo.value(fs.fwh6.desuperheat.cold_side_outlet.enth_mol[0])
             )
         )
         _log.info(
             "FWH6 outlet flow_mol={}".format(
-                pyo.value(fs.fwh6.desuperheat.outlet_2.flow_mol[0])
+                pyo.value(fs.fwh6.desuperheat.cold_side_outlet.flow_mol[0])
             )
         )
         _log.info(
             "FWH6 outlet pressure={}".format(
-                pyo.value(fs.fwh6.desuperheat.outlet_2.pressure[0])
+                pyo.value(fs.fwh6.desuperheat.cold_side_outlet.pressure[0])
             )
         )
         _log.info(
@@ -1717,7 +1666,7 @@ def initialize(m):
 
         # Since the constraint to calculate flow rate based on valve opening
         # and pressure drop is based on the square of flow rate and opening,
-        # negative a valve opening is mathmatically valid.  Set valve openings
+        # negative a valve opening is mathematically valid.  Set valve openings
         # to physically valid positive numbers
         valve_open = fs.fwh2_valve.valve_opening[0].value
         if valve_open < 0:
@@ -1732,7 +1681,7 @@ def initialize(m):
         if valve_open < 0:
             fs.fwh6_valve.valve_opening[:].value = -valve_open
 
-        _log.info("Adding heat transfer coefficent correations...")
+        _log.info("Adding heat transfer coefficient correations...")
         _add_heat_transfer_correlation(fs)
 
     else:
@@ -1757,14 +1706,14 @@ def initialize(m):
 
 
 def _add_u_eq(blk, uex=0.8):
-    """Add heat transfer coefficent adjustment for feed water flow rate.
-    This is based on knowing the heat transfer coefficent at a particular flow
-    and assuming the heat transfer coefficent is porportial to feed water
+    """Add heat transfer coefficient adjustment for feed water flow rate.
+    This is based on knowing the heat transfer coefficient at a particular flow
+    and assuming the heat transfer coefficient is porportial to feed water
     flow rate raised to certain power (typically 0.8)
 
     Args:
         blk: Heat exchanger block to add correlation to
-        uex: Correlation parameter value (defalut 0.8)
+        uex: Correlation parameter value (default 0.8)
 
     Returns:
         None
@@ -1803,52 +1752,52 @@ def set_scaling_factors(m):
     # Set steam cycle scale factors
     fs = m.fs_main.fs_stc
 
-    iscale.set_scaling_factor(fs.condenser.side_1.heat, 1e-9)
-    iscale.set_scaling_factor(fs.condenser.side_2.heat, 1e-9)
+    iscale.set_scaling_factor(fs.condenser.hot_side.heat, 1e-9)
+    iscale.set_scaling_factor(fs.condenser.cold_side.heat, 1e-9)
 
-    iscale.set_scaling_factor(fs.aux_condenser.side_1.heat, 1e-7)
-    iscale.set_scaling_factor(fs.aux_condenser.side_2.heat, 1e-7)
+    iscale.set_scaling_factor(fs.aux_condenser.hot_side.heat, 1e-7)
+    iscale.set_scaling_factor(fs.aux_condenser.cold_side.heat, 1e-7)
 
     iscale.set_scaling_factor(fs.hotwell_tank.control_volume.energy_holdup, 1e-9)
     iscale.set_scaling_factor(fs.hotwell_tank.control_volume.material_holdup, 1e-6)
 
-    iscale.set_scaling_factor(fs.fwh1.condense.side_1.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh1.condense.side_1.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh1.condense.side_2.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh1.condense.side_2.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh1.condense.side_1.heat, 1e-7)
-    iscale.set_scaling_factor(fs.fwh1.condense.side_2.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh1.condense.hot_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh1.condense.hot_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh1.condense.cold_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh1.condense.cold_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh1.condense.hot_side.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh1.condense.cold_side.heat, 1e-7)
 
-    iscale.set_scaling_factor(fs.fwh2.condense.side_1.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh2.condense.side_1.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh2.condense.side_2.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh2.condense.side_2.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh2.condense.side_1.heat, 1e-7)
-    iscale.set_scaling_factor(fs.fwh2.condense.side_2.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh2.condense.hot_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh2.condense.hot_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh2.condense.cold_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh2.condense.cold_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh2.condense.hot_side.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh2.condense.cold_side.heat, 1e-7)
 
-    iscale.set_scaling_factor(fs.fwh3.condense.side_1.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh3.condense.side_1.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh3.condense.side_2.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh3.condense.side_2.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh3.condense.side_1.heat, 1e-7)
-    iscale.set_scaling_factor(fs.fwh3.condense.side_2.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh3.condense.hot_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh3.condense.hot_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh3.condense.cold_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh3.condense.cold_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh3.condense.hot_side.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh3.condense.cold_side.heat, 1e-7)
 
     iscale.set_scaling_factor(fs.da_tank.control_volume.energy_holdup, 1e-10)
     iscale.set_scaling_factor(fs.da_tank.control_volume.material_holdup, 1e-6)
 
-    iscale.set_scaling_factor(fs.fwh5.condense.side_1.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh5.condense.side_1.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh5.condense.side_2.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh5.condense.side_2.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh5.condense.side_1.heat, 1e-7)
-    iscale.set_scaling_factor(fs.fwh5.condense.side_2.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh5.condense.hot_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh5.condense.hot_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh5.condense.cold_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh5.condense.cold_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh5.condense.hot_side.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh5.condense.cold_side.heat, 1e-7)
 
-    iscale.set_scaling_factor(fs.fwh6.condense.side_1.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh6.condense.side_1.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh6.condense.side_2.material_holdup, 1e-4)
-    iscale.set_scaling_factor(fs.fwh6.condense.side_2.energy_holdup, 1e-8)
-    iscale.set_scaling_factor(fs.fwh6.condense.side_1.heat, 1e-7)
-    iscale.set_scaling_factor(fs.fwh6.condense.side_2.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh6.condense.hot_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh6.condense.hot_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh6.condense.cold_side.material_holdup, 1e-4)
+    iscale.set_scaling_factor(fs.fwh6.condense.cold_side.energy_holdup, 1e-8)
+    iscale.set_scaling_factor(fs.fwh6.condense.hot_side.heat, 1e-7)
+    iscale.set_scaling_factor(fs.fwh6.condense.cold_side.heat, 1e-7)
 
     # scaling factor for control valves
     for t in m.fs_main.time:
@@ -1923,11 +1872,11 @@ def main_dynamic():
     m_dyn.fs_main.fs_stc.spray_ctrl.mv_ref.value = (
         m_dyn.fs_main.fs_stc.spray_valve.valve_opening[t0].value
     )
-    m_dyn.fs_main.fs_stc.spray_ctrl.integral_of_error[:].value = pyo.value(
-        m_dyn.fs_main.fs_stc.spray_ctrl.integral_of_error_ref[t0]
+    m_dyn.fs_main.fs_stc.spray_ctrl.mv_integral_component[:].value = pyo.value(
+        m_dyn.fs_main.fs_stc.spray_ctrl.mv_integral_component_ref[t0]
     )
-    m_dyn.fs_main.fs_stc.makeup_ctrl.integral_of_error[:].value = pyo.value(
-        m_dyn.fs_main.fs_stc.makeup_ctrl.integral_of_error_ref[t0]
+    m_dyn.fs_main.fs_stc.makeup_ctrl.mv_integral_component[:].value = pyo.value(
+        m_dyn.fs_main.fs_stc.makeup_ctrl.mv_integral_component_ref[t0]
     )
 
     m_dyn.fs_main.fs_stc.fwh2.condense.level[0].fix()
@@ -2234,13 +2183,13 @@ def get_model(dynamic=True):
     m.dynamic = dynamic
     if m.dynamic:
         m.fs_main = FlowsheetBlock(
-            default={"dynamic": True, "time_set": [0, 60], "time_units": pyo.units.s}
+            dynamic=True, time_set=[0, 60], time_units=pyo.units.s
         )
     else:
-        m.fs_main = FlowsheetBlock(default={"dynamic": False})
+        m.fs_main = FlowsheetBlock(dynamic=False)
     # Add property packages to flowsheet library
     m.fs_main.prop_water = iapws95.Iapws95ParameterBlock()
-    m.fs_main.fs_stc = FlowsheetBlock(default={"time_units": pyo.units.s})
+    m.fs_main.fs_stc = FlowsheetBlock(time_units=pyo.units.s)
     m = add_unit_models(m)
     if m.dynamic:
         m.discretizer = pyo.TransformationFactory("dae.finite_difference")

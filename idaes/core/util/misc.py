@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 
 """
@@ -16,26 +16,12 @@ This module contains miscellaneous utility functions for use in IDAES models.
 """
 from enum import Enum
 
-from pyomo.common.deprecation import deprecated, relocated_module_attribute
-
 import pyomo.environ as pyo
 from pyomo.common.config import ConfigBlock
 
 import idaes.logger as idaeslog
-from idaes.core.util.tags import svg_tag as svg_tag_new
 
 _log = idaeslog.getLogger(__name__)
-
-
-relocated_module_attribute(
-    "get_solver", "idaes.core.solvers.get_solver", version="2.0.0.alpha0"
-)
-
-relocated_module_attribute(
-    "VarLikeExpression",
-    "idaes.core.base.var_like_expression.VarLikeExpression",
-    version="2.0.0.alpha0",
-)
 
 
 # Author: Andrew Lee
@@ -78,58 +64,6 @@ def extract_data(data_dict):
             return data_dict[args[0]]
 
     return _rule_initialize
-
-
-@deprecated(
-    "idaes.core.util.misc.TagReference will be removed in a future version",
-    version=1.12,
-)
-def TagReference(s, description=""):
-    """
-    Create a Pyomo reference with an added description string attribute to
-    describe the reference. The intended use for these references is to create
-    a time-indexed reference to variables in a model corresponding to plant
-    measurment tags.
-
-    Args:
-        s: Pyomo time slice of a variable or expression
-        description (str): A description the measurment
-
-    Returns:
-        A Pyomo Reference object with an added doc attribute
-    """
-    r = pyo.Reference(s)
-    r.description = description
-    return r
-
-
-def copy_port_values(destination=None, source=None, arc=None, direction="forward"):
-    """
-    Moved to idaes.core.util.initialization.propagate_state.
-    Leaving redirection function here for deprecation warning.
-    """
-    _log.warning(
-        "DEPRECATED: copy_port_values has been deprecated. "
-        "The same functionality can be found in "
-        "idaes.core.util.initialization.propagate_state."
-    )
-    from idaes.core.util.initialization import propagate_state
-
-    propagate_state(
-        destination=destination, source=source, arc=arc, direction=direction
-    )
-
-
-@deprecated(
-    "idaes.core.util.misc.svg_tag has moved to idaes.core.util.tags.svg_tag",
-    version=1.12,
-)
-def svg_tag(*args, **kwargs):
-    """
-    Moved to idaes.core.util.tags.svg_tag
-    Leaving redirection function here for deprecation warning.
-    """
-    return svg_tag_new(*args, **kwargs)
 
 
 def set_param_from_config(b, param, config=None, index=None):
@@ -202,9 +136,9 @@ def set_param_from_config(b, param, config=None, index=None):
             param_obj = getattr(b, param + "_" + index)
         except AttributeError:
             raise AttributeError(
-                "{} - set_param_from_config method was provided with param and"
-                " index arguments {} {}, but no attribute with that "
-                "combination ({}_{}) exists.".format(b.name, param, index, param, index)
+                f"{b.name} - set_param_from_config method was provided with param and"
+                f" index arguments {param} {index}, but no attribute with that "
+                f"combination ({param}_{index}) exists."
             )
 
         try:
@@ -216,32 +150,24 @@ def set_param_from_config(b, param, config=None, index=None):
                 " a value for this parameter and index.".format(b.name, param, index)
             )
 
-    units = param_obj.get_units()
-
     # Check to see if p_data is callable, and if so, try to call the
     # get_parameter_value method to get 2-tuple
     if hasattr(p_data, "get_parameter_value"):
         p_data = p_data.get_parameter_value(b.local_name, param)
 
     if isinstance(p_data, tuple):
-        # 11 Dec 2020 - There is currently a bug in Pyomo where trying to
-        # convert the units of a unitless quantity results in a TypeError.
-        # To avoid this, we check here for cases where both the parameter and
-        # user provided value are unitless and bypass unit conversion.
-        if (units is None or units is pyo.units.dimensionless) and (
-            p_data[1] is None or p_data[1] is pyo.units.dimensionless
-        ):
-            param_obj.value = p_data[0]
+        if p_data[1] is None:
+            p_val = p_data[0] * pyo.units.dimensionless
         else:
-            param_obj.value = pyo.units.convert_value(
-                p_data[0], from_units=p_data[1], to_units=units
-            )
+            p_val = p_data[0] * p_data[1]
     else:
         _log.debug(
             "{} no units provided for parameter {} - assuming default "
             "units".format(b.name, param)
         )
-        param_obj.value = p_data
+        p_val = p_data
+
+    param_obj.set_value(p_val)
 
 
 class StrEnum(str, Enum):

@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Two-dimensional model of a porous, conductive medium, such as electrodes used in
@@ -44,13 +44,21 @@ Instances of ``Var`` that must be fixed:
       values that include void areas must be corrected by dividing by one minus porosity
     - ``solid_thermal_conductivity``: Thermal conductivity of solid phase of slab. Again, literature
       values may need to be divided by one minus porosity
-    - ``resistivity_log_preexponential_factor``: Natural logarithm of resistivity preexponential factor in ohm * m
+    - ``resistivity_log_preexponential_factor``: Natural logarithm of resistivity preexponential factor in ohm * m.
+      Again, literature values may need to be divided by one minus porosity
     - ``resistivity_thermal_exponent_dividend``: Parameter divided by temperature in resistivity equation, in K.
       Would be something like (reduced) activation energy, but it can be both negative and positive.
 """
+# TODO: Missing docstrings
+# pylint: disable=missing-class-docstring
+# pylint: disable=missing-function-docstring
+
+# TODO: Look into protected access issues
+# pylint: disable=protected-access
+
 __author__ = "John Eslick, Douglas Allan"
 
-from pyomo.common.config import ConfigValue, In, Bool, ListOf
+from pyomo.common.config import ConfigValue, Bool, ListOf
 from pyomo.dae import DerivativeVar
 import pyomo.environ as pyo
 
@@ -64,6 +72,7 @@ from idaes.models_extra.power_generation.unit_models.soc_submodels.common import
     _element_list,
     _element_dict,
 )
+from idaes.core.util.exceptions import ConfigurationError
 import idaes.core.util.scaling as iscale
 from idaes.core.solvers import get_solver
 
@@ -73,6 +82,14 @@ import idaes.logger as idaeslog
 @declare_process_block_class("PorousConductiveSlab")
 class PorousConductiveSlabData(UnitModelBlockData):
     CONFIG = UnitModelBlockData.CONFIG()
+    CONFIG.declare(
+        "has_gas_holdup",
+        ConfigValue(
+            domain=Bool,
+            default=False,
+            description="If True, make holdup terms corresponding to gas phase",
+        ),
+    )
     CONFIG.declare(
         "control_volume_xfaces",
         ConfigValue(
@@ -148,6 +165,11 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 and self.config.dconc_mol_comp_refdt is not None
             )
 
+        if self.config.has_gas_holdup and not self.config.has_holdup:
+            raise ConfigurationError(
+                "Creating gas holdup terms while not creating other holdup terms is not supported."
+            )
+
         if self.config.conc_mol_comp_ref is None:
             self.conc_mol_comp_ref = pyo.Var(
                 tset,
@@ -157,7 +179,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 initialize=0.0,
                 units=pyo.units.mol / pyo.units.m**3,
             )
-            if self.config.dynamic:
+            if self.config.dynamic and self.config.has_gas_holdup:
                 self.dconc_mol_comp_refdt = DerivativeVar(
                     self.conc_mol_comp_ref,
                     wrt=tset,
@@ -221,20 +243,21 @@ class PorousConductiveSlabData(UnitModelBlockData):
             units=pyo.units.J / pyo.units.mol,
         )
         if self.config.has_holdup:
-            self.int_energy_mol = pyo.Var(
-                tset,
-                ixnodes,
-                iznodes,
-                doc="Fluid molar internal energy at node centers",
-                units=pyo.units.J / pyo.units.mol,
-            )
-            self.int_energy_density = pyo.Var(
-                tset,
-                ixnodes,
-                iznodes,
-                doc="Fluid molar internal energy density at node centers",
-                units=pyo.units.J / pyo.units.m**3,
-            )
+            if self.config.has_gas_holdup:
+                self.int_energy_mol = pyo.Var(
+                    tset,
+                    ixnodes,
+                    iznodes,
+                    doc="Fluid molar internal energy at node centers",
+                    units=pyo.units.J / pyo.units.mol,
+                )
+                self.int_energy_density = pyo.Var(
+                    tset,
+                    ixnodes,
+                    iznodes,
+                    doc="Fluid molar internal energy density at node centers",
+                    units=pyo.units.J / pyo.units.m**3,
+                )
             self.int_energy_density_solid = pyo.Var(
                 tset,
                 ixnodes,
@@ -261,7 +284,16 @@ class PorousConductiveSlabData(UnitModelBlockData):
             initialize=1 / len(comps),
             bounds=(0, 1),
         )
-
+        self.diff_eff_coeff = pyo.Var(
+            tset,
+            ixnodes,
+            iznodes,
+            comps,
+            doc="Effective Fick's law diffusion coefficient at node centers",
+            initialize=2e-5,
+            bounds=(0, None),
+            units=pyo.units.m**2 / pyo.units.s,
+        )
         self.resistivity_log_preexponential_factor = pyo.Var(
             doc="Logarithm of resistivity preexponential factor " "in units of ohm*m",
             units=pyo.units.dimensionless,
@@ -271,12 +303,24 @@ class PorousConductiveSlabData(UnitModelBlockData):
         )
 
         # Parameters
-        self.solid_heat_capacity = pyo.Var()
-        self.solid_density = pyo.Var()
-        self.solid_thermal_conductivity = pyo.Var()
+        self.solid_heat_capacity = pyo.Var(
+            initialize=200,
+            doc="Heat capacity of solid part of porous slab (mass basis)",
+            units=pyo.units.J / pyo.units.kg / pyo.units.K,
+        )
+        self.solid_density = pyo.Var(
+            initialize=1000,
+            doc="Density of solid part of porous slab",
+            units=pyo.units.kg / pyo.units.m**3,
+        )
+        self.solid_thermal_conductivity = pyo.Var(
+            initialize=80,
+            doc="Thermal conductivity of solid part of porous slab",
+            units=pyo.units.W / pyo.units.m / pyo.units.K,
+        )
 
-        # Add time derivative varaible if steady state use const 0.
-        if dynamic:
+        # Add time derivative variable if steady state use const 0.
+        if dynamic and self.config.has_gas_holdup:
             self.dconc_mol_comp_deviation_xdt = DerivativeVar(
                 self.conc_mol_comp_deviation_x,
                 wrt=tset,
@@ -292,8 +336,8 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 initialize=0,
                 units=pyo.units.mol / pyo.units.m**3 / pyo.units.s,
             )
-        # Add time derivative varaible if steady state use const 0.
-        if dynamic:
+        # Add time derivative variable if steady state use const 0.
+        if dynamic and self.config.has_gas_holdup:
             self.dcedt = DerivativeVar(
                 self.int_energy_density,
                 wrt=tset,
@@ -308,7 +352,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 initialize=0,
                 units=pyo.units.W / pyo.units.m**3,
             )
-        # Add time derivative varaible if steady state use const 0.
+        # Add time derivative variable if steady state use const 0.
         if dynamic:
             self.dcedt_solid = DerivativeVar(
                 self.int_energy_density_solid,
@@ -410,21 +454,22 @@ class PorousConductiveSlabData(UnitModelBlockData):
             )
 
         if self.config.has_holdup:
-            # For the vapor phase
-            @self.Constraint(tset, ixnodes, iznodes)
-            def int_energy_mol_eqn(b, t, ix, iz):
-                return b.int_energy_mol[t, ix, iz] == sum(
-                    common._comp_int_energy_expr(b.temperature[t, ix, iz], i)
-                    * b.mole_frac_comp[t, ix, iz, i]
-                    for i in comps
-                )
+            if self.config.has_gas_holdup:
+                # For the vapor phase
+                @self.Constraint(tset, ixnodes, iznodes)
+                def int_energy_mol_eqn(b, t, ix, iz):
+                    return b.int_energy_mol[t, ix, iz] == sum(
+                        common._comp_int_energy_expr(b.temperature[t, ix, iz], i)
+                        * b.mole_frac_comp[t, ix, iz, i]
+                        for i in comps
+                    )
 
-            @self.Constraint(tset, ixnodes, iznodes)
-            def int_energy_density_eqn(b, t, ix, iz):
-                return (
-                    b.int_energy_density[t, ix, iz]
-                    == b.int_energy_mol[t, ix, iz] / b.vol_mol[t, ix, iz]
-                )
+                @self.Constraint(tset, ixnodes, iznodes)
+                def int_energy_density_eqn(b, t, ix, iz):
+                    return (
+                        b.int_energy_density[t, ix, iz]
+                        == b.int_energy_mol[t, ix, iz] / b.vol_mol[t, ix, iz]
+                    )
 
             @self.Constraint(tset, ixnodes, iznodes)
             def int_energy_density_solid_eqn(b, t, ix, iz):
@@ -438,18 +483,15 @@ class PorousConductiveSlabData(UnitModelBlockData):
         def mole_frac_comp_eqn(b, t, ix, iz):
             return 1 == sum(b.mole_frac_comp[t, ix, iz, i] for i in comps)
 
-        @self.Expression(tset, ixnodes, iznodes, comps)
-        def diff_eff_coeff(b, t, ix, iz, i):
+        @self.Constraint(tset, ixnodes, iznodes, comps)
+        def diff_eff_coeff_eqn(b, t, ix, iz, i):
             T = b.temperature[t, ix, iz]
             P = b.pressure[t, ix, iz]
             x = b.mole_frac_comp
             bfun = common._binary_diffusion_coefficient_expr
-            return (
-                b.porosity
-                / b.tortuosity
-                * (1.0 - x[t, ix, iz, i])
-                / sum(x[t, ix, iz, j] / bfun(T, P, i, j) for j in comps if i != j)
-            )
+            return b.diff_eff_coeff[t, ix, iz, i] == b.porosity / b.tortuosity * (
+                1.0 - x[t, ix, iz, i]
+            ) / sum(x[t, ix, iz, j] / bfun(T, P, i, j) for j in comps if i != j)
 
         @self.Expression(tset, ixfaces, iznodes, comps)
         def dcdx(b, t, ix, iz, i):
@@ -668,7 +710,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 b.material_flux_z[t, ix, iz, i] - b.material_flux_z[t, ix, iz + 1, i]
             )
 
-        if dynamic:
+        if dynamic and self.config.has_gas_holdup:
             self.material_balance_eqn[tset.first(), :, :, :].deactivate()
 
         @self.Expression(tset, ixnodes, iznodes)
@@ -729,7 +771,6 @@ class PorousConductiveSlabData(UnitModelBlockData):
         pressure_guess=None,
         mole_frac_guess=None,
     ):
-        init_log = idaeslog.getInitLogger(self.name, outlvl, tag="unit")
         solve_log = idaeslog.getSolveLogger(self.name, outlvl, tag="unit")
 
         comps = self.component_list
@@ -772,7 +813,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                             for i in comps
                         ),
                     )
-                    if self.config.has_holdup:
+                    if self.config.has_gas_holdup:
                         _set_if_unfixed(
                             self.int_energy_mol[t, ix, iz],
                             sum(
@@ -885,15 +926,20 @@ class PorousConductiveSlabData(UnitModelBlockData):
 
     def recursive_scaling(self):
         gsf = iscale.get_scaling_factor
-        ssf = common._set_scaling_factor_if_none
-        sgsf = common._set_and_get_scaling_factor
-        cst = lambda c, s: iscale.constraint_scaling_transform(c, s, overwrite=False)
+
+        def ssf(c, s):
+            iscale.set_scaling_factor(c, s, overwrite=False)
+
+        sgsf = iscale.set_and_get_scaling_factor
+
+        def cst(c, s):
+            iscale.constraint_scaling_transform(c, s, overwrite=False)
+
         sR = 1e-1  # Scaling factor for R
         sD = 1e5  # Heuristic scaling factor for diffusion coefficient
         sy_def = 10  # Mole frac comp scaling
-        sh = 1e-2  # Heat xfer coeff
         sH = 1e-4  # Enthalpy/int energy
-        sk = 10  # Fudge factor to scale temperature_deviation_x
+        sk = 0.1  # Fudge factor to scale temperature_deviation_x
         sLx = sgsf(self.length_x, len(self.ixnodes) / self.length_x.value)
         sLy = 1 / self.length_y[None].value
         sLz = len(self.iznodes) / self.length_z[None].value
@@ -920,7 +966,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                     ssf(self.temperature_deviation_x1, sq1 * sLx / sk)
 
                 sqx = min(sq0, sq1)
-                sqz = 10 * sqx  # Heuristic
+                # sqz = 10 * sqx  # Heuristic
 
                 smaterial_flux_x = {}
                 for j in self.component_list:
@@ -964,11 +1010,12 @@ class PorousConductiveSlabData(UnitModelBlockData):
                     cst(self.enth_mol_eqn[t, ix, iz], sH)
 
                     if self.config.has_holdup:
-                        sU = sgsf(self.int_energy_mol[t, ix, iz], sH)
-                        cst(self.int_energy_mol_eqn[t, ix, iz], sU)
+                        if self.config.has_gas_holdup:
+                            sU = sgsf(self.int_energy_mol[t, ix, iz], sH)
+                            cst(self.int_energy_mol_eqn[t, ix, iz], sU)
 
-                        s_rho_U = sgsf(self.int_energy_density[t, ix, iz], sU / sV)
-                        cst(self.int_energy_density_eqn[t, ix, iz], s_rho_U)
+                            s_rho_U = sgsf(self.int_energy_density[t, ix, iz], sU / sV)
+                            cst(self.int_energy_density_eqn[t, ix, iz], s_rho_U)
 
                         s_rho_U_solid = sgsf(
                             self.int_energy_density_solid[t, ix, iz],
@@ -996,3 +1043,6 @@ class PorousConductiveSlabData(UnitModelBlockData):
                             self.material_balance_eqn[t, ix, iz, j],
                             smaterial_flux_x[j] * sLy * sLz,
                         )
+                        # FIXME come back later to clean up
+                        ssf(self.diff_eff_coeff[t, ix, iz, j], 1e5)
+                        cst(self.diff_eff_coeff_eqn[t, ix, iz, j], 1e5)

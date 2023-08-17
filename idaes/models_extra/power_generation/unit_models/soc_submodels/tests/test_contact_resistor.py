@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 
 __author__ = "Douglas Allan"
@@ -21,8 +21,9 @@ from idaes.core import FlowsheetBlock
 from idaes.core.util.model_statistics import degrees_of_freedom
 import idaes.models_extra.power_generation.unit_models.soc_submodels as soc
 import idaes.models_extra.power_generation.unit_models.soc_submodels.testing as soc_testing
+from idaes.core.solvers import get_solver
 
-solver = pyo.SolverFactory("ipopt")
+solver = get_solver("ipopt")
 
 
 @pytest.fixture
@@ -42,15 +43,13 @@ def model():
     )
 
     m.fs.contact = soc.SocContactResistor(
-        default={
-            "control_volume_zfaces": zfaces,
-            "length_z": m.fs.length_z,
-            "length_y": m.fs.length_y,
-            "current_density": m.fs.current_density,
-            "temperature_z": m.fs.temperature_z,
-            "temperature_deviation_x": m.fs.temperature_deviation_x,
-            "heat_flux_x0": m.fs.heat_flux_x0,
-        }
+        control_volume_zfaces=zfaces,
+        length_z=m.fs.length_z,
+        length_y=m.fs.length_y,
+        current_density=m.fs.current_density,
+        temperature_z=m.fs.temperature_z,
+        temperature_deviation_x=m.fs.temperature_deviation_x,
+        heat_flux_x0=m.fs.heat_flux_x0,
     )
     m.fs.temperature_deviation_x.fix(0)
     m.fs.heat_flux_x0.fix(0)
@@ -67,18 +66,8 @@ def model2():
     time_set = [0, 1]
     zfaces = np.linspace(0, 1, 8).tolist()
     m = pyo.ConcreteModel()
-    m.fs = FlowsheetBlock(
-        default={
-            "dynamic": False,
-            "time_set": time_set,
-            "time_units": pyo.units.s,
-        }
-    )
-    m.fs.contact = soc.SocContactResistor(
-        default={
-            "control_volume_zfaces": zfaces,
-        }
-    )
+    m.fs = FlowsheetBlock(dynamic=False, time_set=time_set, time_units=pyo.units.s)
+    m.fs.contact = soc.SocContactResistor(control_volume_zfaces=zfaces)
     m.fs.contact.current_density.fix(0)
     m.fs.contact.temperature_z.fix(0)
     m.fs.contact.temperature_deviation_x.fix(0)
@@ -116,7 +105,7 @@ def test_build(model):
             pyo.Expression: {
                 "temperature": nz * nt,
                 "contact_resistance": nz * nt,
-                "voltage_drop": nz * nt,
+                "voltage_drop_total": nz * nt,
                 "joule_heating_flux": nz * nt,
             },
         },
@@ -157,7 +146,7 @@ def test_build2(model2):
             pyo.Expression: {
                 "temperature": nz * nt,
                 "contact_resistance": nz * nt,
-                "voltage_drop": nz * nt,
+                "voltage_drop_total": nz * nt,
                 "joule_heating_flux": nz * nt,
             },
         },

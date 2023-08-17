@@ -1,14 +1,14 @@
 #################################################################################
 # The Institute for the Design of Advanced Energy Systems Integrated Platform
 # Framework (IDAES IP) was produced under the DOE Institute for the
-# Design of Advanced Energy Systems (IDAES), and is copyright (c) 2018-2021
-# by the software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia University
-# Research Corporation, et al.  All rights reserved.
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.md and LICENSE.md for full copyright and
-# license information.
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
 #################################################################################
 """
 Tests for CLC gas phase thermo state block; tests for construction and solve
@@ -42,12 +42,12 @@ solver = get_solver()
 @pytest.fixture(scope="class")
 def gas_prop():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # gas properties and state inlet block
     m.fs.properties = GasPhaseParameterBlock()
     m.fs.unit = m.fs.properties.build_state_block(
-        [0], default={"parameters": m.fs.properties, "defined_state": True}
+        [0], parameters=m.fs.properties, defined_state=True
     )
 
     m.fs.unit[0].flow_mol.fix(1)
@@ -82,12 +82,12 @@ def test_setInputs_state_block(gas_prop):
 @pytest.fixture(scope="class")
 def gas_prop_unscaled():
     m = ConcreteModel()
-    m.fs = FlowsheetBlock(default={"dynamic": False})
+    m.fs = FlowsheetBlock(dynamic=False)
 
     # gas properties and state inlet block
     m.fs.properties = GasPhaseParameterBlock()
     m.fs.unit = m.fs.properties.build_state_block(
-        [0], default={"parameters": m.fs.properties, "defined_state": True}
+        [0], parameters=m.fs.properties, defined_state=True
     )
 
     m.fs.unit[0].flow_mol.fix(1)
@@ -134,7 +134,7 @@ def test_solve_unscaled(gas_prop_unscaled):
     assert hasattr(gas_prop_unscaled.fs.unit[0], "dens_mass")
     assert hasattr(gas_prop_unscaled.fs.unit[0], "visc_d")
     assert hasattr(gas_prop_unscaled.fs.unit[0], "therm_cond")
-    assert hasattr(gas_prop_unscaled.fs.unit[0], "diffusion_comp")
+    assert hasattr(gas_prop_unscaled.fs.unit[0], "diffus_comp")
     assert hasattr(gas_prop_unscaled.fs.unit[0], "cp_mol_comp")
     assert hasattr(gas_prop_unscaled.fs.unit[0], "cp_mol")
     assert hasattr(gas_prop_unscaled.fs.unit[0], "cp_mass")
@@ -164,7 +164,7 @@ def test_scaling(gas_prop):
     assert hasattr(gas_prop.fs.unit[0], "dens_mass")
     assert hasattr(gas_prop.fs.unit[0], "visc_d")
     assert hasattr(gas_prop.fs.unit[0], "therm_cond")
-    assert hasattr(gas_prop.fs.unit[0], "diffusion_comp")
+    assert hasattr(gas_prop.fs.unit[0], "diffus_comp")
     assert hasattr(gas_prop.fs.unit[0], "cp_mol_comp")
     assert hasattr(gas_prop.fs.unit[0], "cp_mol")
     assert hasattr(gas_prop.fs.unit[0], "cp_mass")
@@ -214,7 +214,7 @@ def test_scaling(gas_prop):
         assert pytest.approx(
             1e5, abs=1e-2
         ) == iscale.get_constraint_transform_applied_scaling_factor(c)
-    for i, c in gas_prop.fs.unit[0].diffusion_comp_constraint.items():
+    for i, c in gas_prop.fs.unit[0].diffus_comp_constraint.items():
         assert pytest.approx(
             1e5, abs=1e-2
         ) == iscale.get_constraint_transform_applied_scaling_factor(c)
@@ -316,7 +316,7 @@ def test_units_consistent(gas_prop):
     assert hasattr(gas_prop.fs.unit[0], "dens_mass")
     assert hasattr(gas_prop.fs.unit[0], "visc_d")
     assert hasattr(gas_prop.fs.unit[0], "therm_cond")
-    assert hasattr(gas_prop.fs.unit[0], "diffusion_comp")
+    assert hasattr(gas_prop.fs.unit[0], "diffus_comp")
     assert hasattr(gas_prop.fs.unit[0], "cp_mol_comp")
     assert hasattr(gas_prop.fs.unit[0], "cp_mol")
     assert hasattr(gas_prop.fs.unit[0], "cp_mass")
