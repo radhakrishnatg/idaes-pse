@@ -52,6 +52,11 @@ def get_lmp_data(
         column_name = princeton_case
         num_days = 365
 
+    elif dataset == "sco2_basecase":
+        raw_data = pd.read_csv("lcoe_price_signal.csv")
+        column_name = "price"
+        num_days = 365
+
     m.set_time = RangeSet(num_days * 24)
     price_all = raw_data[column_name].tolist()
 
@@ -213,7 +218,7 @@ class DFCOperationData(SkeletonUnitModelData):
         _co2_emission = params["co2_emission"]
 
         self.power_production = Constraint(
-            expr=self.power == (_perf_curve[0] / (_ng_flow / _dfc_capacity)) * self.ng_flow - 
+            expr=self.power == (_perf_curve[0] / (_ng_flow / _dfc_capacity)) * self.ng_flow + 
             _perf_curve[1] * self.op_mode_capacity,
         )
 

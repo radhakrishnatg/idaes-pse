@@ -57,7 +57,7 @@ NG_PRICE_DATA = {
         }
     },
     "Princeton": 2.94,
-    "New_Princeton": 2.94
+    "sco2_basecase": 4.42,
 }
 
 
@@ -190,14 +190,16 @@ def npv_model_dfc_asu(
     location="PJM-W",
     carbon_tax=150,
     dfc_params=dmp.DFC_PARAMS,
-    asu_params=dmp.ASU_PARAMS,
+    asu_params=dmp.MONO_ASU_PARAMS,
     cost_params=dmp.CASHFLOW_PARAMS,
     solver=None,
     folder="",
 ):
     if dataset == "NREL":
         cost_ng = NG_PRICE_DATA[dataset][carbon_tax][location]
-    else:
+    elif dataset == "Princeton":
+        cost_ng = NG_PRICE_DATA[dataset]
+    elif dataset == "sco2_basecase":
         cost_ng = NG_PRICE_DATA[dataset]
 
     penalty = cost_params["electricity_cost"] / 1e3
