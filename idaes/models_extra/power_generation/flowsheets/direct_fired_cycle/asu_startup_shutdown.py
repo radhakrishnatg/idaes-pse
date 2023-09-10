@@ -22,29 +22,33 @@ def asu_startup_shutdown_constraints(m):
     # for eCach of the processes.
 
     # Create an alias for the parent block. 
-    pb = m.parent_block()
+    pb = m.parent_block()               # This is the multiperiod model object
     set_period = pb.set_period
     num_time_periods = len(set_period)
+    des_mdl = pb.parent_block()         # This is the pyomo model object
+    _power_req_coeff = des_mdl.asu_design.config.model_params["power_req_coeff"]
 
-    # Cycle can operate at time t, only if one of the following two is true
+    # Relationship between binary variables. This constraint implies the following
+    # constraints:
+    # 1. Cycle can operate at time t, only if one of the following two is true
     #     - Cycle was in operation at time t - 1
     #     - Cycle startup was initiated at time t - 8
+    # 2. If the plant was in operation at time t-1 and *not* in operation at t, then plant 
+    # shutdown must have been initiated at time t
+    # These constraints enable us to relax binary requirement on shutdown variable
     @m.Constraint(set_period)
-    def cycle_operation(blk, t):
+    def binary_var_relation(blk, t):
         if t == 1:
-            # Constraint is not applicable at t = 1. Initial condition is left free
-            # But it can choose at most one of the three
+            # At t = 1, the generator is either running, or startup is initiated
+            # Avoid shutdown at t = 1
+            return pb.period[t].fs.asu.shutdown == 0
+        
+        else:
             return (
-                pb.period[t].fs.asu.op_mode + pb.period[t].fs.asu.startup +
-                pb.period[t].fs.asu.shutdown <= 1
+                pb.period[t].fs.asu.op_mode - pb.period[t - 1].fs.asu.op_mode
+                == (pb.period[t - SU_TIME].fs.asu.startup if t-SU_TIME > 0 else 0)
+                - pb.period[t].fs.asu.shutdown
             )
-
-        # Slightly modify the constraint at t <= 8, since startup variable is not
-        # defined for t <= 0
-        return (
-            pb.period[t].fs.asu.op_mode <= pb.period[t - 1].fs.asu.op_mode +
-            (pb.period[t - SU_TIME].fs.asu.startup if t-SU_TIME > 0 else 0)
-        )
 
     # After plant startup, the unit cannot produce oxygen in the next 8 hours, but
     # consumes 80% of P_max power during that period
@@ -58,17 +62,8 @@ def asu_startup_shutdown_constraints(m):
             pb.period[t + i].fs.asu.shutdown <= 1 - pb.period[t].fs.asu.startup
         )
 
-    @m.Constraint(set_period, [j for j in range(SU_TIME)])
-    def startup_con_2(blk, t, i):
-        if t + i > num_time_periods:
-            return Constraint.Skip
-
-        des_mdl = pb.parent_block()
-        return (
-            pb.period[t + i].fs.asu.su_sd_power >= 
-            0.8 * des_mdl.asu_design.max_power * pb.period[t].fs.asu.startup
-        )
-
+    # I think this constraint will automatically be satisfied by the optimal solution
+    # so, we do not have to add it explicitly. 
     # ASU must operate at the ninth hour after startup is initiated
     @m.Constraint(set_period)
     def startup_con_3(blk, t):
@@ -76,14 +71,6 @@ def asu_startup_shutdown_constraints(m):
             return Constraint.Skip
 
         return pb.period[t + SU_TIME].fs.asu.op_mode >= pb.period[t].fs.asu.startup
-
-    # Startup can be initiated at time t only if op_mode[t - 1] = 0
-    @m.Constraint(set_period)
-    def startup_con_4(blk, t):
-        if t == 1:
-            return Constraint.Skip
-
-        return pb.period[t].fs.asu.startup <= 1 - pb.period[t - 1].fs.asu.op_mode
 
     # Shutdown can be initiated at time t only if the ASU was operating at time t - 1
     @m.Constraint(set_period)
@@ -96,19 +83,12 @@ def asu_startup_shutdown_constraints(m):
 
     # During the shutdown, power consumption is 50% of the P_max and O2 is not produced
     @m.Constraint(set_period)
-    def shutdown_con_2(blk, t):
-        des_mdl = pb.parent_block()
+    def startup_shutdown_power(blk, t):
         return (
-            pb.period[t].fs.asu.su_sd_power >= 
-            0.5 *  des_mdl.asu_design.max_power * pb.period[t].fs.asu.shutdown
-        )
-
-    # If op_mode[t] = 1, and op_mode[t + 1] = 0, then shutdown must be initated at t + 1
-    @m.Constraint(set_period)
-    def shutdown_con_3(blk, t):
-        if t + 1 > num_time_periods:
-            return Constraint.Skip
-
-        return (
-            pb.period[t].fs.asu.op_mode - pb.period[t + 1].fs.asu.op_mode <= pb.period[t + 1].fs.asu.shutdown
+            pb.period[t].fs.asu.su_sd_power == 
+            0.5 * _power_req_coeff * pb.period[t].fs.asu.shutdown_o2_flow +
+            0.8 * _power_req_coeff * sum(
+                pb.period[t - i].fs.asu.startup_o2_flow 
+                for i in range(SU_TIME) if t - i > 0
+            )
         )

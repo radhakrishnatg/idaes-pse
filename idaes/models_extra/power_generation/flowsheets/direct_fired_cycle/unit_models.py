@@ -1,6 +1,53 @@
+#################################################################################
+# The Institute for the Design of Advanced Energy Systems Integrated Platform
+# Framework (IDAES IP) was produced under the DOE Institute for the
+# Design of Advanced Energy Systems (IDAES).
+#
+# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
+#################################################################################
+
+"""
+Assumptions for air separation unit:  
+1. 1 kmol/hr of feed air, composition (0.7812, 0.0093, 0.2095) = (N2, Ar, O2)
+2. 0.20603 kmol/hr of GOX, composition (0, 0.005, 0.995)
+3. 0.63597 kmol/hr of GAN, composition (1, 0, 0)
+4. 0.15 kmol/hr of WAN, composition (0.9682, 0.001852, 0.029947)
+5. 0.008 kmol/hr of LAR, composition (0, 0.999, 0.001)
+
+Molecular weight of feed: 28.964759 kg/kmol
+Molecular weight of GOX : 32.03975 kg/kmol
+Molecular weight of GAN : 28.02 kg/kmol
+Molecular weight of WAN : 28.16128601007286 kg/kmol
+Molecular weight of LAR : 39.94205 kg/kmol
+
+This implies:
+MW_feed kg air produces 0.20603 * MW_GOX kg of GOX
+==> 1 kg/s of GOX requires MW_feed / (0.20603 * MW_GOX)
+
+MW_feed kg of air produces 0.63597 * MW_GAN kg of GAN
+==> MW_feed / (0.20603 * MW_GOX) kg/s of air produces 
+    (0.63597 * MW_GAN) / (0.20603 * MW_GOX) of GAN
+
+1 kg/s of Oxygen product produces:
+    (0.15 * MW_WAN) / (0.20603 * MW_GOX) of WAN, and
+    (0.008 * MW_LAR) / (0.20603 * MW_GOX) of LAR
+
+Therefore, 
+GAN production rate = ((0.63597 * MW_GAN) / (0.20603 * MW_GOX)) * GOX flowrate
+LAR production rate = ((0.008 * MW_LAR) / (0.20603 * MW_GOX)) * GOX flowrate
+
+"""
+
+
 from importlib import resources
 from pathlib import Path
 import pandas as pd
+import json
 
 from pyomo.environ import (
     Var,
@@ -15,53 +62,31 @@ from pyomo.environ import (
 from idaes.core.base.process_base import declare_process_block_class
 from idaes.models.unit_models import SkeletonUnitModelData
 from pyomo.common.config import ConfigValue
-import idaes.power_generation.flowsheets.direct_fired_cycle. \
+import idaes.models_extra.power_generation.flowsheets.direct_fired_cycle. \
     default_model_parameters as dmp
 
+GAN_PROD_RATE = (0.63597 * 28.02) / (0.20603 * 32.03975)  # See notes above
+LAR_PROD_RATE = (0.008 * 39.94205) / (0.20603 * 32.03975) # See notes above
 
-def get_lmp_data(
-    m, 
-    dataset="NREL",
-    location="CAISO",
-    carbon_tax=100,
-    princeton_case="BaseCaseTax",
-):
+
+def get_lmp_data(m, dataset="NREL"):
     """
     This function reads and appends LMP data to the model.
     """
     with resources.path(
-        "idaes.power_generation.flowsheets.direct_fired_cycle", 
-        "FLECCS_Price_Series_Data_01_20_2021.xlsx"
+        "idaes.models_extra.power_generation.flowsheets.direct_fired_cycle", 
+        "lmp_data.csv"
     ) as p:
         path_to_file = Path(p).resolve()
 
-    if dataset == "NREL":
-        raw_data = pd.read_excel(
-            path_to_file,
-            sheet_name="2035 - NREL",
-        )
-        column_name = 'MiNg_$' + str(carbon_tax) + '_' + location
-        # We will take the price signal for day 365 same as that for day 364
-        num_days = 365
-
-    elif dataset == "Princeton":
-        raw_data = pd.read_excel(
-            path_to_file,
-            sheet_name="2030 - Princeton",
-        )
-        column_name = princeton_case
-        num_days = 365
-
-    elif dataset == "sco2_basecase":
-        raw_data = pd.read_csv("lcoe_price_signal.csv")
-        column_name = "price"
-        num_days = 365
+    raw_data = pd.read_csv(path_to_file)
+    num_days = 365
 
     m.set_time = RangeSet(num_days * 24)
-    price_all = raw_data[column_name].tolist()
+    price_all = raw_data[dataset].tolist()
 
-    # Set prices lower than $0.001/MWh to zero to avoid numerical issues
-    price_all = [i if i > 1e-3 else 0 for i in price_all]
+    # Set prices lower than $0.01/MWh to zero to avoid numerical issues
+    price_all = [i if i > 0.01 else 0 for i in price_all]
 
     # LMP is divided by 1000 to formulate the objective in thousands of dollars.
     # This helps in keeping the scale of the CAPEX in O(1e6), otherwise it would be O(1e9).
@@ -72,18 +97,21 @@ def get_lmp_data(
     )
 
 
+def get_natural_gas_price(dataset):
+
+    with open("lmp_metadata.json") as fp:
+        data = json.load(fp)
+
+    return data[dataset]["ng_price"]
+
+
 @declare_process_block_class("DFCDesign")
 class DFCDesignData(SkeletonUnitModelData):
     """
     This class contains variables/parameters related to the design of the direct fired cycle
     """
     CONFIG = SkeletonUnitModelData.CONFIG()
-    CONFIG.declare("capacity_range", ConfigValue(
-        default=(500, 850),
-        doc="Range for the capacity of the DFC [in MW]",
-    ))
     CONFIG.declare("model_params", ConfigValue(
-        default=dmp.DFC_PARAMS,
         doc="Dictionary containing model parameters",
     ))
 
@@ -92,16 +120,15 @@ class DFCDesignData(SkeletonUnitModelData):
         super().build()
 
         params = self.config.model_params
-        _dfc_capacity = params["dfc_capacity"]
-        _ng_flow = params["ng_flow"]
-        _o2_ng_ratio = params["o2_ng_ratio"]
-        _capex = params["capex"]
-        _fom_factor = params["fom_factor"]
+        _capacity_range = params["des_capacity_range"]  # Capacity range of DFC [MW]
+        _ng_flow_coeff = params["ng_flow_coeff"]        # Coefficient relating NG flow and power [kg/s/MW]
+        _o2_ng_ratio = params["o2_ng_ratio"]            # Ratio of O2 to NG flowrates [-]
+        _capex = params["capex"]                        # List of coefficients of the linear surrogate
+        _fom_factor = params["fom_factor"]              # Ratio of FOM and CAPEX
 
         self.capacity = Var(
             within=NonNegativeReals,
-            initialize=_dfc_capacity,
-            bounds=(0, self.config.capacity_range[1]),
+            bounds=(0, _capacity_range[1]),
             doc="Capacity of the power plant [in MW]",
         )
 
@@ -112,14 +139,12 @@ class DFCDesignData(SkeletonUnitModelData):
         )
 
         # Bound the capcity of the plant in the specified range
-        capacity_range = self.config.capacity_range
-        self.capacity_lb_con = Constraint(expr=self.capacity >= self.build_dfc * capacity_range[0])
-        self.capacity_ub_con = Constraint(expr=self.capacity <= self.build_dfc * capacity_range[1])
+        self.capacity_lb_con = Constraint(expr=self.capacity >= self.build_dfc * _capacity_range[0])
+        self.capacity_ub_con = Constraint(expr=self.capacity <= self.build_dfc * _capacity_range[1])
 
         # Compute the natural gas flowrate required at maximum capacity. 
-        # FIXME: Assuming a linear relation for now. Update the equation when we have more data
         self.ng_flow = Expression(
-            expr=self.capacity * (_ng_flow / _dfc_capacity),
+            expr=_ng_flow_coeff * self.capacity,
             doc="Computes the natural flowrate required [in kg/s] at full load",
         )
 
@@ -130,7 +155,7 @@ class DFCDesignData(SkeletonUnitModelData):
 
         # Assumuing that the capex varies linearly with capacity
         self.capex = Expression(
-            expr=_capex * (self.capacity / _dfc_capacity),
+            expr=_capex[0] * self.capacity + _capex[1] * self.build_dfc,
             doc="CAPEX of the power cycle [in 1000$]",
         )
 
@@ -151,10 +176,6 @@ class DFCOperationData(SkeletonUnitModelData):
     CONFIG = SkeletonUnitModelData.CONFIG()
     CONFIG.declare("design_blk", ConfigValue(
         doc="Pointer to the object containing the DFC design information",
-    ))
-    CONFIG.declare("operating_range", ConfigValue(
-        default=(0.2, 1),
-        doc="Off-design operating range. Default: (0.2 * full load, full load)",
     ))
 
     # noinspection PyAttributeOutsideInit
@@ -189,17 +210,34 @@ class DFCOperationData(SkeletonUnitModelData):
             within=NonNegativeReals,
             doc="Auxiliary variable for the product of op_mode and capacity",
         )
+        self.startup_capacity = Var(
+            within=NonNegativeReals,
+            doc="Auxiliary variable for the product of startup and capacity",
+        )
+        self.shutdown_capacity = Var(
+            within=NonNegativeReals,
+            doc="Auxiliary variable for the product of shutdown and capacity",
+        )
 
-        # Linear relaxation of the product op_mode * capacity
-        self.mccor_conv = Constraint(
-            expr=self.op_mode_capacity >= design_blk.capacity + 
-            design_blk.capacity.ub * self.op_mode - design_blk.capacity.ub,
+        # Linear relaxation of the product of binary variable and capacity
+        self.lin_relax_1 = Constraint(
+            expr=self.op_mode_capacity + self.startup_capacity + self.shutdown_capacity <=
+            design_blk.capacity
         )
-        self.mccor_conc_1 = Constraint(
-            expr=self.op_mode_capacity <= design_blk.capacity,
+        self.lin_relax_2 = Constraint(
+            expr=self.op_mode_capacity + self.startup_capacity + self.shutdown_capacity >=
+            design_blk.capacity - design_blk.capacity.ub * (
+                design_blk.build_dfc - self.op_mode - self.startup - self.shutdown
+            )
         )
-        self.mccor_conc_2 = Constraint(
-            expr=self.op_mode_capacity <= self.op_mode * design_blk.capacity.ub,
+        self.lin_relax_3 = Constraint(
+            expr=self.op_mode_capacity <= self.op_mode * design_blk.capacity.ub
+        )
+        self.lin_relax_4 = Constraint(
+            expr=self.startup_capacity <= self.startup * design_blk.capacity.ub
+        )
+        self.lin_relax_5 = Constraint(
+            expr=self.shutdown_capacity <= self.shutdown * design_blk.capacity.ub
         )
 
         # Power production as a function of natural gas flowrate
@@ -210,26 +248,27 @@ class DFCOperationData(SkeletonUnitModelData):
         # substitute max_ng_flow in terms of capacity and rearrange the equation.
 
         params = design_blk.config.model_params
-        _dfc_capacity = params["dfc_capacity"]
-        _ng_flow = params["ng_flow"]
+        _operating_range = params["op_capacity_range"]
+        _ng_flow_coeff = params["ng_flow_coeff"]
         _perf_curve = params["op_curve_coeff"]
         _o2_ng_ratio = params["o2_ng_ratio"]
-        _vom = params["vom"]
-        _co2_emission = params["co2_emission"]
+        _const_vom_coeff = params["const_vom_coeff"]
+        _var_vom_coeff = params["var_vom_coeff"]
+        _co2_emission = params["co2_emission_rate"]
+        _co2_capture = params["co2_capture_rate"]
 
         self.power_production = Constraint(
-            expr=self.power == (_perf_curve[0] / (_ng_flow / _dfc_capacity)) * self.ng_flow + 
+            expr=self.power == (_perf_curve[0] / _ng_flow_coeff) * self.ng_flow + 
             _perf_curve[1] * self.op_mode_capacity,
         )
 
         # Ensure that power production is within P_min and P_max
-        operating_range = self.config.operating_range
         self.power_production_lb = Constraint(
-            expr=operating_range[0] * self.op_mode_capacity <= self.power,
+            expr=_operating_range[0] * self.op_mode_capacity <= self.power,
         )
 
         self.power_production_ub = Constraint(
-            expr=self.power <= operating_range[1] * self.op_mode_capacity,
+            expr=self.power <= _operating_range[1] * self.op_mode_capacity,
         )
 
         # Declare a variable to track NG requirement for startup and shutdown
@@ -249,14 +288,23 @@ class DFCOperationData(SkeletonUnitModelData):
         )
 
         self.non_fuel_vom = Expression(
-            expr=_vom * (self.power / _dfc_capacity),
+            expr=(_var_vom_coeff * self.power + 
+                  _const_vom_coeff[0] * self.op_mode_capacity + 
+                  _const_vom_coeff[1] * self.op_mode),
             doc="Non-fuel VOM cost [in $1000/hr]",
         )
 
         self.co2_emissions = Expression(
-            expr=_co2_emission * self.power,
-            doc="Net CO2 emissions [in kg/hr]",
+            expr=_co2_emission * self.total_ng_flow * (1 - _co2_capture),
+            doc="Net CO2 emissions [in kg/s]",
         )
+
+    def change_shutdown_to_continuous(self):
+        self.shutdown.domain = NonNegativeReals
+        self.shutdown.setub(1)
+
+    def change_shutdown_to_binary(self):
+        self.shutdown.domain = Binary
 
 
 @declare_process_block_class("MonoASUDesign")
@@ -267,12 +315,7 @@ class MonoASUDesignData(SkeletonUnitModelData):
     """
 
     CONFIG = SkeletonUnitModelData.CONFIG()
-    CONFIG.declare("o2_flow_range", ConfigValue(
-        default=(80, 130),
-        doc="Range for the size of the ASU in terms of O2 flow rate [in kg/s]",
-    ))
     CONFIG.declare("model_params", ConfigValue(
-        default=dmp.MONO_ASU_PARAMS,
         doc="Dictionary containing model parameters",
     ))
 
@@ -281,15 +324,14 @@ class MonoASUDesignData(SkeletonUnitModelData):
         super().build()
 
         params = self.config.model_params
-        _asu_capacity = params["asu_capacity"]
-        _power_req = params["power_requirement"]
+        _o2_flow_range = params["des_capacity_range"]
+        _power_req = params["power_req_coeff"]
         _capex = params["capex"]
         _fom_factor = params["fom_factor"]
 
         self.max_o2_flow = Var(
             within=NonNegativeReals,
-            initialize=_asu_capacity,
-            bounds=(0, self.config.o2_flow_range[1]),
+            bounds=(0, _o2_flow_range[1]),
             doc="Maximum flowrate of O2 the ASU can produce [in kg/s]",
         )
         self.build_asu = Var(
@@ -298,19 +340,18 @@ class MonoASUDesignData(SkeletonUnitModelData):
         )
 
         # Bound the capcity of the plant in the specified range
-        o2_flow_range = self.config.o2_flow_range
-        self.o2_flow_lb_con = Constraint(expr=self.max_o2_flow >= self.build_asu * o2_flow_range[0])
-        self.o2_flow_ub_con = Constraint(expr=self.max_o2_flow <= self.build_asu * o2_flow_range[1])
+        self.o2_flow_lb_con = Constraint(expr=self.max_o2_flow >= self.build_asu * _o2_flow_range[0])
+        self.o2_flow_ub_con = Constraint(expr=self.max_o2_flow <= self.build_asu * _o2_flow_range[1])
 
         # Relation between the flowrate and the power requirement
         self.max_power = Expression(
-            expr=self.max_o2_flow * (_power_req / _asu_capacity),
+            expr=_power_req * self.max_o2_flow,
             doc="Power requirement at maximum capacity [in MW]",
         )
 
         # Assuming that the capex of the ASU varies linearly with size
         self.capex = Expression(
-            expr=_capex * (self.max_o2_flow / _asu_capacity),
+            expr=_capex[0] * self.max_o2_flow + _capex[1] * self.build_asu,
             doc="CAPEX of the ASU unit [in 1000$]",
         )
 
@@ -331,10 +372,6 @@ class MonoASUOperationData(SkeletonUnitModelData):
     CONFIG = SkeletonUnitModelData.CONFIG()
     CONFIG.declare("design_blk", ConfigValue(
         doc="Pointer to the object containing the ASU design information",
-    ))
-    CONFIG.declare("operating_range", ConfigValue(
-        default=(0.3, 1),
-        doc="Off-design operating range. Default: (0.3 * full load, full load)",
     ))
 
     # noinspection PyAttributeOutsideInit
@@ -364,21 +401,39 @@ class MonoASUOperationData(SkeletonUnitModelData):
             within=Binary,
             doc="1: ASU is shutdown at this hour, 0: Otherwise",
         )
+
         self.op_mode_o2_flow = Var(
             within=NonNegativeReals,
             doc="Auxiliary variable for linearizing the product of op_mode and max_o2_flow"
         )
+        self.startup_o2_flow = Var(
+            within=NonNegativeReals,
+            doc="Auxiliary variable for linearizing the product of startup and max_o2_flow"
+        )
+        self.shutdown_o2_flow = Var(
+            within=NonNegativeReals,
+            doc="Auxiliary variable for linearizing the product of shutdown and max_o2_flow"
+        )
 
         # Linear relaxation of op_mode * max_o2_flow
-        self.mccor_conv = Constraint(
-            expr=self.op_mode_o2_flow >= design_blk.max_o2_flow + 
-            self.op_mode * design_blk.max_o2_flow.ub - design_blk.max_o2_flow.ub,
+        self.lin_relax_1 = Constraint(
+            expr=self.op_mode_o2_flow + self.startup_o2_flow + self.shutdown_o2_flow <=
+            design_blk.max_o2_flow
         )
-        self.mccor_conc_1 = Constraint(
-            expr=self.op_mode_o2_flow <= design_blk.max_o2_flow,
+        self.lin_relax_2 = Constraint(
+            expr=self.op_mode_o2_flow + self.startup_o2_flow + self.shutdown_o2_flow >= 
+            design_blk.max_o2_flow - design_blk.max_o2_flow.ub * (
+                design_blk.build_asu - self.op_mode - self.startup - self.shutdown
+            )
         )
-        self.mccor_conc_2 = Constraint(
-            expr=self.op_mode_o2_flow <= self.op_mode * design_blk.max_o2_flow.ub,
+        self.lin_relax_3 = Constraint(
+            expr=self.op_mode_o2_flow <= self.op_mode * design_blk.max_o2_flow.ub
+        )
+        self.lin_relax_4 = Constraint(
+            expr=self.startup_o2_flow <= self.startup * design_blk.max_o2_flow.ub
+        )
+        self.lin_relax_5 = Constraint(
+            expr=self.shutdown_o2_flow <= self.shutdown * design_blk.max_o2_flow.ub
         )
 
         # Power production as a function of natural gas flowrate
@@ -387,24 +442,26 @@ class MonoASUOperationData(SkeletonUnitModelData):
         # Rearranging the equation yields norm_power = m * norm_o2_flow + 1-m 
 
         params = design_blk.config.model_params
-        _asu_capacity = params["asu_capacity"]
-        _power_req = params["power_requirement"]
+        _operating_range = params["op_capacity_range"]
+        _power_req = params["power_req_coeff"]
         _perf_curve = params["op_curve_coeff"]
-        _vom = params["vom"]
+        _var_vom = params["var_vom_coeff"]
+        _const_vom = params["const_vom_coeff"]
+        _nitrogen_price = params["nitrogen_price"]
+        _argon_price = params["argon_price"]
 
         self.power_requirement = Constraint(
-            expr=(1 / (_power_req / _asu_capacity)) * self.power == 
+            expr=(1 / _power_req) * self.power == 
             _perf_curve[0] * self.o2_flow + _perf_curve[1] * self.op_mode_o2_flow, 
         )
 
         # Ensure that the normalized oxygen flowrate is within the admissible operating range
-        operating_range = self.config.operating_range
         self.o2_flow_lb = Constraint(
-            expr=operating_range[0] * self.op_mode_o2_flow <= self.o2_flow,
+            expr=_operating_range[0] * self.op_mode_o2_flow <= self.o2_flow,
         )
 
         self.o2_flow_ub = Constraint(
-            expr=self.o2_flow <= operating_range[1] * self.op_mode_o2_flow,
+            expr=self.o2_flow <= _operating_range[1] * self.op_mode_o2_flow,
         )
 
         self.su_sd_power = Var(
@@ -418,9 +475,27 @@ class MonoASUOperationData(SkeletonUnitModelData):
         )
 
         self.non_fuel_vom = Expression(
-            expr=_vom * (self.o2_flow / _asu_capacity),
+            expr=(_var_vom * self.power + _const_vom[0] * self.op_mode_o2_flow 
+                  + _const_vom[1] * self.op_mode),
             doc="Non-electricity VOM cost [in $1000/hr]",
         )
+
+        self.nitrogen_revenue = Expression(
+            expr=GAN_PROD_RATE * self.o2_flow * 3600 * _nitrogen_price,
+            doc="Revenue from nitrogen market [$/hr]",
+        )
+
+        self.argon_revenue = Expression(
+            expr=LAR_PROD_RATE * self.o2_flow * 3600 * _argon_price,
+            doc="Revenue from argon market [$/hr]",
+        )
+
+    def change_shutdown_to_continuous(self):
+        self.shutdown.domain = NonNegativeReals
+        self.shutdown.setub(1)
+
+    def change_shutdown_to_binary(self):
+        self.shutdown.domain = Binary
 
 
 @declare_process_block_class("NLUDesign")
