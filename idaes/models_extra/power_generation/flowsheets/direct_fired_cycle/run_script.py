@@ -31,6 +31,17 @@ price_signal_list = {
     9: {"dataset": "MiNg_$150_NYISO_2035", "carbon_tax": 150},
     10: {"dataset": "MiNg_$150_PJM-W_2035", "carbon_tax": 150},
 
+    11: {"dataset": "NETL_ERCOT_GEN_0", "carbon_tax": 0},
+    12: {"dataset": "NETL_ERCOT_GEN_25", "carbon_tax": 25},
+    13: {"dataset": "NETL_ERCOT_GEN_50", "carbon_tax": 50},
+    14: {"dataset": "NETL_ERCOT_GEN_100", "carbon_tax": 100},
+    15: {"dataset": "NETL_ERCOT_GEN_250", "carbon_tax": 250},
+
+    16: {"dataset": "ISO_NE_2022", "carbon_tax": 0},
+    17: {"dataset": "MISO_INDIANA_2022", "carbon_tax": 0},
+    18: {"dataset": "SPP_NORTH_2022", "carbon_tax": 0},
+    19: {"dataset": "SPP_SOUTH_2022", "carbon_tax": 0},
+
     "V1": {"dataset": "EXEMPLAR_LARGE", "carbon_tax": 0},
     "V2": {"dataset": "EXEMPLAR_MEDIUM", "carbon_tax": 0},
     "V3": {"dataset": "EXEMPLAR_SMALL", "carbon_tax": 0},
@@ -131,6 +142,110 @@ def validation_runs():
     return
 
 
+def sa1_default_params(model_type="without_storage"):
+    dfc_params = copy.deepcopy(DFC_PARAMS)
+    asu_params = copy.deepcopy(ASU_PARAMS)
+    nlu_params = copy.deepcopy(NLU_PARAMS)
+    tank_params = copy.deepcopy(TANK_PARAMS)
+    cost_params = copy.deepcopy(CASHFLOW_PARAMS)
+
+    if model_type == "without_storage":
+        folder_name = "wos_default_params"
+        _includes_nlu = False
+
+    elif model_type == "with_storage":
+        folder_name = "ws_default_params"
+        _includes_nlu = True
+
+    # Modify CAPEX coefficients here
+    cost_params["FCR"] = 0.0707 * 1.093 * 1.213496
+    cost_params["tax_rate"] = 0
+
+    cwd = os.getcwd()
+    if not os.path.exists(cwd + "\\" + folder_name):
+        os.mkdir(os.path.join(cwd, folder_name))
+
+    for ps in range(1, 2):
+        print("*" * 80)
+        print("Solving for dataset: ", price_signal_list[ps]["dataset"])
+        print("*" * 80)
+
+        if model_type == "without_storage":
+            m = npv_model_dfc_asu(
+                dataset=price_signal_list[ps]["dataset"],
+                carbon_tax=price_signal_list[ps]["carbon_tax"],
+                dfc_params=dfc_params,
+                asu_params=asu_params,
+                cost_params=cost_params,
+            )
+
+        elif model_type == "with_storage":
+            # # Solve the model without storage for initialization
+            # mdl = npv_model_dfc_asu(
+            #     dataset=price_signal_list[ps]["dataset"],
+            #     carbon_tax=price_signal_list[ps]["carbon_tax"],
+            #     dfc_params=dfc_params,
+            #     asu_params=asu_params,
+            #     cost_params=cost_params,
+            # )
+
+            # # Enforce that the DFC is built and fix its capacity
+            # mdl.dfc_design.build_dfc.fix(1)
+
+            # # Solve the model
+            # solver.solve(mdl, tee=True)
+
+            m = npv_model_dfc_asu_nlu(
+                dataset=price_signal_list[ps]["dataset"],
+                carbon_tax=price_signal_list[ps]["carbon_tax"],
+                dfc_params=dfc_params,
+                asu_params=asu_params,
+                nlu_params=nlu_params,
+                tank_params=tank_params,
+                cost_params=cost_params,
+            )
+
+            # Solve the model without storage for initialization
+            m.nlu_design.build_nlu.fix(0)
+            m.tank_design.build_tank.fix(0)
+
+            solver.solve(m, tee=True)
+
+            # for t in m.mp_model.period:
+            #     if mdl.mp_model.period[t].fs.dfc.op_mode.value > 0.99:
+            #         m.mp_model.period[t].fs.dfc.op_mode.fix(1)
+
+            #     if mdl.mp_model.period[t].fs.asu.op_mode.value > 0.99:
+            #         m.mp_model.period[t].fs.asu.op_mode.fix(1)
+
+            for t in m.mp_model.period:
+                if m.mp_model.period[t].fs.dfc.op_mode.value > 0.99:
+                    m.mp_model.period[t].fs.dfc.op_mode.fix(1)
+
+                if m.mp_model.period[t].fs.asu.op_mode.value > 0.99:
+                    m.mp_model.period[t].fs.asu.op_mode.fix(1)
+
+            m.nlu_design.build_nlu.unfix()
+            m.tank_design.build_tank.unfix()
+
+        # Additional constraints on the model
+        m.dfc_design.build_dfc.fix(1)
+
+        if model_type == "with_storage":
+            m.nlu_design.build_nlu.fix(1)
+            m.tank_design.build_tank.fix(1)
+
+        sol = solver.solve(m, tee=True)
+
+        # Write results to file
+        _filename = folder_name + "/" + price_signal_list[ps]["dataset"]
+        _write_results(m, sol, lox_withdrawal=False, includes_nlu=_includes_nlu, filename=_filename) 
+
+    return
+
+
 if __name__ == "__main__":
     # single_case()
-    validation_runs()
+    # validation_runs()
+    sa1_default_params(model_type="with_storage")
+    

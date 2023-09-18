@@ -106,40 +106,46 @@ MONO_ASU_PARAMS = {
 
 # Parameter data for ASU
 ASU_PARAMS = {
-    "asu_capacity"      : 27.3228058,        # [kg/s] Maximum O2 flow 
-    "power_requirement" : 40.546965425,      # [MW] Power requirement at max capacity 
-    "capex"             : 136380.5,          # [$1000] CAPEX of ASU 
-    "fom_factor"        : 0.03157,           # [-] Multiplier for FOM 
-    "op_curve_coeff"    : [0.9625, 0.0375],  # coefficients of performance curve
-    "vom"               : 0.2339575,         # [$1000/hr] Non-electricity VOM 
+    "des_capacity_range" : (5, 27.5),                 # [kg/s] Bounds on ASU capacity
+    "power_req_coeff"    : 1.3086,                    # [MW] Power requirement at max capacity 
+    "capex"              : [1348.536775, 4382.86675], # [$1000] CAPEX of ASU 
+    "fom_factor"         : 0.03128,                   # [-] Multiplier for FOM
+    "op_capacity_range"  : (0.7, 1),                  # [-] Operating range of ASU
+    "op_curve_coeff"     : [0.9625, 0.0375],          # Coefficients of performance curve
+    "argon_price"        : 0,                         # [$/kg] Selling price of Argon
+    "nitrogen_price"     : 0,                         # [$/kg] Selling price of nitrogen
+    "var_vom_coeff"      : 0,                         # [$1000/MWh] Non-electricity VOM 
+    "const_vom_coeff"    : [0.0022575, 0.005133975],  # [$1000/hr] Non-electricity VOM
 }
 
 # Parameter data for NLU
 NLU_PARAMS = {
-    "nlu_capacity"      : 109.291223201103,   # [kg/s] Maximum O2 flow 
-    "power_requirement" : 143.8024,           # [MW] Power requirement at max capacity 
-    "capex"             : 171189.6,           # [$1000] CAPEX of NLU 
-    "fom_factor"        : 0.03157,            # [-] Multiplier for FOM [-]
-    "vom"               : 0.7259,             # [$1000/hr] Non-electricity VOM 
+    "des_capacity_range" : (20, 110),                 # [kg/s] Bounds on ASU capacity
+    "power_req_coeff"    : 1.7873,                    # [MW] Power requirement at max capacity 
+    "capex"              : [1856.93338, 7023.3325],   # [$1000] CAPEX of NLU 
+    "fom_factor"         : 0.03128,                   # [-] Multiplier for FOM
+    "op_capacity_range"  : (0.3, 1),                  # [-] Operating range of ASU
+    "var_vom_coeff"      : 0,                         # [$1000/MWh] Non-electricity VOM 
+    "const_vom_coeff"    : [0.005498, 0],             # [$1000/hr] Non-electricity VOM
 }
 
 # Parameter data for LOx tank
 O2_TANK_PARAMS = {
-    "capex"             : [0.98167214, 2779.90543786],
-    "fom_factor"        : 0.03157,            # [-] Multiplier for FOM
-    "min_holdup"        : 0.1,                # [-] Minimum holdup fraction
-    "power_requirement" : 1.47054,            # [MW] Power requirement for storage
-    "o2_flow"           : 112.0865459,        # [kg/s] O2 flowrate for 
-    "tank_constraint"   : "periodic",         # "Periodic" or "initial_holdup"
+    "des_capacity_range" : (2000, 400000),            # [kg/s] Bounds on ASU capacity
+    "capex"              : [0.98167214, 2779.905438], # [$1000] CAPEX of tank
+    "fom_factor"         : 0.03128,                   # [-] Multiplier for FOM
+    "min_holdup"         : 0.1,                       # [-] Minimum holdup fraction
+    "power_req_coeff"    : 1.47054 / 112.0865459,     # [MW/kg/s] Power requirement for storage
+    "tank_constraint"    : "periodic",                # "Periodic" or "initial_holdup"
 }
 
 
 # Cashflow parameters
 CASHFLOW_PARAMS = {
-    "plant_life"        : 30,                 # [-] Plant lifetime in years
-    "discount_rate"     : 0.075,              # [-] Discount rate
-    "tax_rate"          : 0.2,                # [-] Corporate tax rate
-    "electricity_cost"  : 5,                  # [$/MWh] Excess penalty for purchasing electricity
+    "plant_life"        : 30,                         # [-] Plant lifetime in years
+    "discount_rate"     : 0.075,                      # [-] Discount rate
+    "tax_rate"          : 0.2,                        # [-] Corporate tax rate
+    "electricity_cost"  : 5,                          # [$/MWh] Excess penalty for purchasing electricity
 }
 discount_rate = CASHFLOW_PARAMS["discount_rate"]
 plant_life = CASHFLOW_PARAMS["plant_life"]

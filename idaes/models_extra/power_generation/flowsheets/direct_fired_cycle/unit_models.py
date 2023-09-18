@@ -505,12 +505,7 @@ class NLUDesignData(SkeletonUnitModelData):
     """
 
     CONFIG = SkeletonUnitModelData.CONFIG()
-    CONFIG.declare("o2_flow_range", ConfigValue(
-        default=(50, 130),
-        doc="Range for the size of the NLU in terms of O2 flow rate [in kg/s]",
-    ))
     CONFIG.declare("model_params", ConfigValue(
-        default=dmp.NLU_PARAMS,
         doc="Dictionary containing NLU model parameters",
     ))
 
@@ -519,16 +514,15 @@ class NLUDesignData(SkeletonUnitModelData):
         super().build()
 
         params = self.config.model_params
-        _nlu_capacity = params["nlu_capacity"]
-        _power_req = params["power_requirement"]
+        _o2_flow_range = params["des_capacity_range"]
+        _power_req = params["power_req_coeff"]
         _capex = params["capex"]
         _fom_factor = params["fom_factor"]
 
         self.max_o2_flow = Var(
             within=NonNegativeReals,
-            initialize=_nlu_capacity,
-            bounds=(0, self.config.o2_flow_range[1]),
-            doc="Maximum flowrate of O2 the NLU can liquefy [in kg/s]",
+            bounds=(0, _o2_flow_range[1]),
+            doc="Maximum flowrate of O2 the ASU can produce [in kg/s]",
         )
         self.build_nlu = Var(
             within=Binary,
@@ -536,20 +530,18 @@ class NLUDesignData(SkeletonUnitModelData):
         )
 
         # Bound the capcity of the plant in the specified range
-        o2_flow_range = self.config.o2_flow_range
-        self.o2_flow_lb_con = Constraint(expr=self.max_o2_flow >= self.build_nlu * o2_flow_range[0])
-        self.o2_flow_ub_con = Constraint(expr=self.max_o2_flow <= self.build_nlu * o2_flow_range[1])
+        self.o2_flow_lb_con = Constraint(expr=self.max_o2_flow >= self.build_nlu * _o2_flow_range[0])
+        self.o2_flow_ub_con = Constraint(expr=self.max_o2_flow <= self.build_nlu * _o2_flow_range[1])
 
         # Relation between the flowrate and the power requirement
         self.max_power = Expression(
-            expr=self.max_o2_flow * (_power_req / _nlu_capacity),
+            expr=_power_req * self.max_o2_flow,
             doc="Power requirement at maximum capacity [in MW]",
         )
 
         # Assuming that the capex of the NLU varies linearly with size
-        # Obtained from $42,797.4 * 4 = $171,189.6
         self.capex = Expression(
-            expr=_capex * (self.max_o2_flow / _nlu_capacity),
+            expr=_capex[0] * self.max_o2_flow + _capex[1] * self.build_nlu,
             doc="CAPEX of the ASU unit [in 1000$]",
         )
 
@@ -574,10 +566,6 @@ class NLUOperationData(SkeletonUnitModelData):
     CONFIG.declare("design_blk", ConfigValue(
         doc="Pointer to the object containing the NLU design information",
     ))
-    CONFIG.declare("operating_range", ConfigValue(
-        default=(0.3, 1),
-        doc="Off-design operating range. Default: (0.3 * full load, full load)",
-    ))
 
     # noinspection PyAttributeOutsideInit
     def build(self):
@@ -585,9 +573,10 @@ class NLUOperationData(SkeletonUnitModelData):
 
         design_blk = self.config.design_blk
         params = design_blk.config.model_params
-        _nlu_capacity = params["nlu_capacity"]
-        _power_req = params["power_requirement"]
-        _vom = params["vom"]
+        _power_req = params["power_req_coeff"]
+        _operating_range = params["op_capacity_range"]
+        _var_vom = params["var_vom_coeff"]
+        _const_vom = params["const_vom_coeff"]
 
         # Declare variables
         self.power = Var(
@@ -611,7 +600,8 @@ class NLUOperationData(SkeletonUnitModelData):
         )
         self.mccor_conv = Constraint(
             expr=self.op_mode_o2_flow >= design_blk.max_o2_flow 
-            + self.op_mode * design_blk.max_o2_flow.ub - design_blk.max_o2_flow.ub,
+            + self.op_mode * design_blk.max_o2_flow.ub 
+            - design_blk.max_o2_flow.ub * design_blk.build_nlu,
         )
         self.mccor_conc_1 = Constraint(
             expr=self.op_mode_o2_flow <= design_blk.max_o2_flow,
@@ -622,21 +612,21 @@ class NLUOperationData(SkeletonUnitModelData):
 
         # Power production as a function of natural gas flowrate
         self.power_requirement = Constraint(
-            expr=self.power == self.o2_flow * (_power_req / _nlu_capacity),
+            expr=self.power == _power_req * self.o2_flow,
         )
 
         # Ensure that the normalized oxygen flowrate is within the operating_range
-        operating_range = self.config.operating_range
         self.o2_flow_lb = Constraint(
-            expr=operating_range[0] * self.op_mode_o2_flow <= self.o2_flow,
+            expr=_operating_range[0] * self.op_mode_o2_flow <= self.o2_flow,
         )
 
         self.o2_flow_ub = Constraint(
-            expr=self.o2_flow <= operating_range[1] * self.op_mode_o2_flow,
+            expr=self.o2_flow <= _operating_range[1] * self.op_mode_o2_flow,
         )
 
         self.non_fuel_vom = Expression(
-            expr=_vom * (self.o2_flow / _nlu_capacity),
+            expr=(_var_vom * self.power + _const_vom[0] * self.op_mode_o2_flow 
+                  + _const_vom[1] * self.op_mode),
             doc="Non-electricity VOM cost [in $1000/hr]",
         )
 
@@ -648,12 +638,7 @@ class OxygenTankDesignData(SkeletonUnitModelData):
     """
 
     CONFIG = SkeletonUnitModelData.CONFIG()
-    CONFIG.declare("tank_size_range", ConfigValue(
-        default=(2000, 400000),
-        doc="Range for the tank capacity [in tons]",
-    ))
     CONFIG.declare("model_params", ConfigValue(
-        default=dmp.O2_TANK_PARAMS,
         doc="Dictionary containing model parameters"
     ))
 
@@ -662,13 +647,13 @@ class OxygenTankDesignData(SkeletonUnitModelData):
         super().build()
 
         params = self.config.model_params
+        _tank_size_range = params["des_capacity_range"]
         _fom_factor = params["fom_factor"]
         _capex = params["capex"]
 
         self.tank_capacity = Var(
             within=NonNegativeReals,
-            initialize=4000,
-            bounds=(0, self.config.tank_size_range[1]),
+            bounds=(0, _tank_size_range[1]),
             doc="Maximum amount of oxygen the tank can hold [in tons]",
         )
 
@@ -678,12 +663,11 @@ class OxygenTankDesignData(SkeletonUnitModelData):
         )
 
         # Bound the capcity of the tank in the specified range
-        tank_size_range = self.config.tank_size_range
         self.tank_capacity_lb_con = Constraint(
-            expr=self.tank_capacity >= self.build_tank * tank_size_range[0]
+            expr=self.tank_capacity >= self.build_tank * _tank_size_range[0]
         )
         self.tank_capacity_ub_con = Constraint(
-            expr=self.tank_capacity <= self.build_tank * tank_size_range[1]
+            expr=self.tank_capacity <= self.build_tank * _tank_size_range[1]
         )
 
         self.capex = Expression(
@@ -707,10 +691,6 @@ class OxygenTankOperationData(SkeletonUnitModelData):
     CONFIG.declare("design_blk", ConfigValue(
         doc="Pointer to the object containing the tank design information",
     ))
-    CONFIG.declare("o2_flow_range", ConfigValue(
-        default=(0, 130),
-        doc="Range for the inlet flowrate of O2 [in kg/s]",
-    ))
 
     # noinspection PyAttributeOutsideInit
     def build(self):
@@ -719,8 +699,8 @@ class OxygenTankOperationData(SkeletonUnitModelData):
         design_blk = self.config.design_blk
         params = design_blk.config.model_params
         _min_holdup = params["min_holdup"]
-        _power_req = params["power_requirement"]
-        _o2_flow = params["o2_flow"]
+        _power_req = params["power_req_coeff"]
+        _max_o2_flow = 130  # Maximum flowrate of Oxygen entering the tank 
 
         self.initial_holdup = Var(
             within=NonNegativeReals,
@@ -740,12 +720,11 @@ class OxygenTankOperationData(SkeletonUnitModelData):
         )
 
         # LOX cannot be stored/withdrawn if the tank is not built
-        o2_flow_range = self.config.o2_flow_range
         self.lox_in_ub_con = Constraint(
-            expr=self.lox_in <= design_blk.build_tank * o2_flow_range[1]
+            expr=self.lox_in <= design_blk.build_tank * _max_o2_flow
         )
         self.lox_out_ub_con = Constraint(
-            expr=self.lox_out <= design_blk.build_tank * o2_flow_range[1]
+            expr=self.lox_out <= design_blk.build_tank * _max_o2_flow
         )
 
         # Holdup must be greater than 10% of the tank capacity at all times
@@ -765,6 +744,6 @@ class OxygenTankOperationData(SkeletonUnitModelData):
 
         # Power requirement for discharging 
         self.power = Expression(
-            expr=_power_req * (self.lox_out / _o2_flow),
+            expr=_power_req * self.lox_out,
             doc="Power requirement for discharging LOX [in MW]",
         )
